@@ -15,6 +15,12 @@ fn parse_error(token : Token, message: &str) {
 }
 
 
+#[derive(Clone)]
+pub enum Stmt {
+    ExprStmt(ExprTree),
+    PrintStmt(ExprTree),
+}
+
 
 #[derive(Clone)]
 pub enum ExprTree {
@@ -134,6 +140,18 @@ impl Parser {
             }
         }
         false
+    }
+
+    fn program() -> Vec<Stmt> {
+        todo!()
+    }
+
+    fn expr_stmt() -> ExprTree {
+        todo!()
+    }
+
+    fn print_stmt() -> ExprTree {
+        todo!()
     }
 
     fn expression(&mut self) -> ExprTree {
