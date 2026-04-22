@@ -36,6 +36,7 @@ impl Value {
         }
     }
 
+    /// Discriminant name
     fn disc_name(&self) -> &str {
         match *self {
             Self::Number(_) => "number",
@@ -45,6 +46,8 @@ impl Value {
         }
     }
 }
+
+
 
 #[derive(Debug)]
 struct EvalError {
@@ -74,16 +77,31 @@ impl std::fmt::Display for EvalError {
 
 impl std::error::Error for EvalError {}
 
-
-
-
-
-pub fn interpret(expr : ExprTree) {
-    match evaluate(expr) {
-        Ok(value) => println!("{}", value.stringify()),
-        Err(e) => println!("{}", e)
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.clone().stringify())
     }
 }
+
+
+
+pub fn interpret(program : Vec<Stmt>) {
+    for stmt in program {
+        execute(stmt).unwrap();
+    }
+}
+
+
+fn execute(stmt : Stmt) -> Result<(), EvalError> {
+    match stmt {
+        Stmt::ExprStmt(expr) => {
+            evaluate(expr)?;
+        },
+        Stmt::PrintStmt(expr) => println!("{}", evaluate(expr)?),
+    }
+    Ok(())
+}
+
 
 
 

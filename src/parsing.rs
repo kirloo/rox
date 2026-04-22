@@ -15,14 +15,14 @@ fn parse_error(token : Token, message: &str) {
 }
 
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Stmt {
     ExprStmt(ExprTree),
     PrintStmt(ExprTree),
 }
 
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum ExprTree {
     Binary(Token, Box<ExprTree>, Box<ExprTree>),
     Unary(Token, Box<ExprTree>),
@@ -30,7 +30,7 @@ pub enum ExprTree {
     Literal(LitValue),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum LitValue {
     False,
     True,
@@ -38,6 +38,9 @@ pub enum LitValue {
     Number(f64),
     StringLit(String),
 }
+
+
+
 
 
 impl ExprTree {
@@ -95,9 +98,8 @@ impl Parser {
         }
     }
 
-    pub fn parse(mut self) -> ExprTree {
-        // TODO error handling
-        self.expression()
+    pub fn parse(mut self) -> Vec<Stmt> {
+        self.program()
     }
 
     fn is_at_end(&self) -> bool {
@@ -132,6 +134,7 @@ impl Parser {
         }
     }
 
+    /// Checks if current token matches any of the given TokenTypes, and advances one token if so
     fn tokenmatch(&mut self, types : &[TokenType]) -> bool {
         for t in types {
             if self.check(t) {
@@ -142,16 +145,26 @@ impl Parser {
         false
     }
 
-    fn program() -> Vec<Stmt> {
-        todo!()
+    fn program(&mut self) -> Vec<Stmt> {
+        let mut statements = Vec::new();
+        while !self.is_at_end() {
+            statements.push(self.statement());
+        }
+        statements
     }
 
-    fn expr_stmt() -> ExprTree {
-        todo!()
-    }
+    fn statement(&mut self) -> Stmt {
+        let stmt;
 
-    fn print_stmt() -> ExprTree {
-        todo!()
+        if self.tokenmatch(&[TokenType::Print]) {
+            stmt = Stmt::PrintStmt(self.expression());
+        } else {
+            stmt = Stmt::ExprStmt(self.expression());
+        }
+
+        self.consume(&[TokenType::Semicolon], "Expect ';' after expression");
+
+        stmt
     }
 
     fn expression(&mut self) -> ExprTree {
@@ -230,6 +243,7 @@ impl Parser {
                 self.consume(&[TokenType::RightParen], "Expect ')' after expression");
                 ExprTree::Grouping(Box::new(expr))
             }
+            TokenType::Identifier(name) => todo!("handle"),
 
             _ => panic!("syntax error bruh") // TODO handle
         }

@@ -7,11 +7,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 mod scanning;
 mod parsing;
-mod evaluation;
+mod execution;
 
 use parsing::Parser;
 use scanning::*;
-use evaluation::interpret;
+use execution::interpret;
 
 static HAD_ERROR: AtomicBool = AtomicBool::new(false);
 
@@ -60,14 +60,12 @@ fn run(script: &str) {
     let mut scanner = Scanner::new(script);
     
     let tokens: Vec<Token> = scanner.scan_tokens();
-
-    //println!("{:?}", tokens);
     
     let parser = Parser::new(tokens);
 
-    let ast = parser.parse();
+    let program = parser.parse();
 
-    interpret(ast);
+    interpret(program);
 }
 
 fn report(line: usize, error_where: &str, message: &str) {
