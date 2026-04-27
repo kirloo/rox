@@ -241,6 +241,12 @@ impl std::fmt::Display for Token {
     }
 }
 
+impl Token {
+    pub fn lexeme_string(&self) -> String {
+        self.lexeme.iter().collect::<String>()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum TokenType {
     LeftParen,

@@ -1,6 +1,5 @@
 use std::env;
 
-use std::fmt::Formatter;
 use std::io::{stdout, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -9,7 +8,7 @@ mod scanning;
 mod parsing;
 mod execution;
 
-use parsing::Parser;
+use parsing::{Parser,ParserOutput};
 use scanning::*;
 use execution::interpret;
 
@@ -63,9 +62,18 @@ fn run(script: &str) {
     
     let parser = Parser::new(tokens);
 
-    let program = parser.parse();
+    let parser_output = parser.parse();
 
-    interpret(program);
+    match parser_output {
+        ParserOutput::Good(program) => interpret(program),
+        ParserOutput::Bad(errors) => {
+            for e in errors {
+                println!("{}", e);
+            }
+        }
+    }
+
+    
 }
 
 fn report(line: usize, error_where: &str, message: &str) {
