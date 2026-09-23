@@ -115,14 +115,14 @@ fn execute(stmt: Stmt, env: &mut Environment) -> Result<(), EvalError> {
         }
         Stmt::PrintStmt(expr) => println!("{}", evaluate(expr, env)?),
         Stmt::Var(ident, expr) => {
-            env.namespace.insert(ident, evaluate(expr, &env)?);
+            let evaluated = evaluate(expr, env)?;
+            env.namespace.insert(ident, evaluated);
         }
-        Stmt::Assignment(_, _) => todo!(),
     }
     Ok(())
 }
 
-fn evaluate(expression: ExprTree, env: &Environment) -> Result<Value, EvalError> {
+fn evaluate(expression: ExprTree, env: &mut Environment) -> Result<Value, EvalError> {
     match expression {
         ExprTree::Grouping(subexpr) => evaluate(*subexpr, env),
 
@@ -138,13 +138,26 @@ fn evaluate(expression: ExprTree, env: &Environment) -> Result<Value, EvalError>
             Some(value) => Ok(value.clone()),
             None => Err(EvalError {
                 line: 0,
-                kind: EvalErrorKind::Unassigned(name.to_string()),
+                kind: EvalErrorKind::Unassigned(name),
             }),
         },
+        ExprTree::Assignment(name, expr_tree) => {
+            if env.namespace.contains_key(&name) {
+                let value = evaluate(*expr_tree, env)?;
+                let place = env.namespace.get_mut(&name).unwrap();
+                *place = value.clone();
+                Ok(value)
+            } else {
+                Err(EvalError {
+                    line: 0,
+                    kind: EvalErrorKind::Unassigned(name),
+                })
+            }
+        }
     }
 }
 
-fn evaluate_unary(token: Token, expr: ExprTree, env: &Environment) -> Result<Value, EvalError> {
+fn evaluate_unary(token: Token, expr: ExprTree, env: &mut Environment) -> Result<Value, EvalError> {
     let subvalue = evaluate(expr, env)?;
 
     match (&token.token_type, subvalue) {
@@ -161,7 +174,7 @@ fn evaluate_binary(
     token: Token,
     left: ExprTree,
     right: ExprTree,
-    env: &Environment,
+    env: &mut Environment,
 ) -> Result<Value, EvalError> {
     let leftvalue = evaluate(left, env)?;
     let rightvalue = evaluate(right, env)?;

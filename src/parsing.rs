@@ -58,7 +58,6 @@ pub enum Stmt {
     ExprStmt(ExprTree),
     PrintStmt(ExprTree),
     Var(String, ExprTree),
-    Assignment(Token, ExprTree),
 }
 
 #[derive(Clone, Debug)]
@@ -68,6 +67,7 @@ pub enum ExprTree {
     Grouping(Box<ExprTree>),
     Literal(LitValue),
     Variable(String),
+    Assignment(String, Box<ExprTree>),
 }
 
 #[derive(Clone, Debug)]
@@ -94,6 +94,7 @@ impl ExprTree {
                 Self::to_string(rightexpr)
             ),
             ExprTree::Variable(ident) => ident.to_string(),
+            ExprTree::Assignment(name, value) => format!("{} assigned to {}", value, name),
         }
     }
 }
@@ -265,7 +266,23 @@ impl Parser {
     }
 
     fn expression(&mut self) -> Result<ExprTree, ParseError> {
-        self.equality()
+        self.assignment()
+    }
+
+    fn assignment(&mut self) -> Result<ExprTree, ParseError> {
+        let expr = self.equality()?;
+
+        if self.tokenmatch(&[TokenType::Equal])? {
+            let equals = self.previous();
+
+            let value = self.assignment()?;
+
+            if let ExprTree::Variable(name) = expr {
+                return Ok(ExprTree::Assignment(name, Box::new(value)));
+            }
+        }
+
+        return Ok(expr);
     }
 
     fn equality(&mut self) -> Result<ExprTree, ParseError> {
