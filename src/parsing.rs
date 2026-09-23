@@ -1,24 +1,25 @@
-
 use crate::scanning::*;
 
 use std::mem::discriminant;
 
-
-
-fn parse_error(token : Token, message: &str) {
+fn parse_error(token: Token, message: &str) {
     use std::mem::discriminant;
     if discriminant(&token.token_type) == discriminant(&TokenType::EOF) {
         crate::report(token.line, " at end", message);
     } else {
-        crate::report(token.line, &format!(" at '{}'", token.lexeme.iter().collect::<String>()), message);
+        crate::report(
+            token.line,
+            &format!(" at '{}'", token.lexeme.iter().collect::<String>()),
+            message,
+        );
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct ParseError {
-    message : String,
-    loc : ParseErrorLocation,
-    line : usize,
+    message: String,
+    loc: ParseErrorLocation,
+    line: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -28,11 +29,11 @@ pub enum ParseErrorLocation {
 }
 
 impl ParseError {
-    fn need_more_tokens(line : usize) -> Self {
+    fn need_more_tokens(line: usize) -> Self {
         ParseError {
-            message : "expected more tokens".to_string(),
+            message: "expected more tokens".to_string(),
             line,
-            loc : ParseErrorLocation::AtEnd,
+            loc: ParseErrorLocation::AtEnd,
         }
     }
 }
@@ -40,15 +41,17 @@ impl ParseError {
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            e @ ParseError { loc: ParseErrorLocation::AtEnd, .. } => 
-                write!(f, "[Line {}] Error at end: {}", e.line, e.message),
-            e @ ParseError { loc: ParseErrorLocation::AtLexeme(lexeme), .. } =>
-                write!(f, "[Line {}] Error at {}: {}", e.line, lexeme, e.message),
+            e @ ParseError {
+                loc: ParseErrorLocation::AtEnd,
+                ..
+            } => write!(f, "[Line {}] Error at end: {}", e.line, e.message),
+            e @ ParseError {
+                loc: ParseErrorLocation::AtLexeme(lexeme),
+                ..
+            } => write!(f, "[Line {}] Error at {}: {}", e.line, lexeme, e.message),
         }
     }
 }
-
-
 
 #[derive(Clone, Debug)]
 pub enum Stmt {
@@ -57,7 +60,6 @@ pub enum Stmt {
     Var(String, ExprTree),
     Assignment(Token, ExprTree),
 }
-
 
 #[derive(Clone, Debug)]
 pub enum ExprTree {
@@ -77,18 +79,14 @@ pub enum LitValue {
     StringLit(String),
 }
 
-
-
 impl ExprTree {
     fn string_repr(&self) -> String {
         match self {
             ExprTree::Literal(lit) => lit.to_string(),
             ExprTree::Grouping(subexpr) => format!("(group {})", Self::to_string(subexpr)),
-            ExprTree::Unary(token, subexpr) => format!(
-                "({} {})",
-                token.lexeme_string(),
-                Self::to_string(subexpr)
-            ),
+            ExprTree::Unary(token, subexpr) => {
+                format!("({} {})", token.lexeme_string(), Self::to_string(subexpr))
+            }
             ExprTree::Binary(token, leftexpr, rightexpr) => format!(
                 "({} {} {})",
                 token.lexeme_string(),
@@ -120,10 +118,9 @@ impl std::fmt::Display for LitValue {
     }
 }
 
-
 pub struct Parser {
-    current : usize,
-    tokens : Vec<Token>,
+    current: usize,
+    tokens: Vec<Token>,
 }
 
 pub enum ParserOutput {
@@ -131,13 +128,9 @@ pub enum ParserOutput {
     Bad(Vec<ParseError>),
 }
 
-
 impl Parser {
-    pub fn new(tokens : Vec<Token>) -> Self {
-        Parser {
-            current : 0,
-            tokens,
-        }
+    pub fn new(tokens: Vec<Token>) -> Self {
+        Parser { current: 0, tokens }
     }
 
     pub fn parse(mut self) -> ParserOutput {
@@ -145,39 +138,42 @@ impl Parser {
     }
 
     fn is_at_end(&self) -> bool {
-        self.current >= self.tokens.len() ||
-        discriminant(&self.peek().expect("yea").token_type) == discriminant(&TokenType::EOF)
+        self.current >= self.tokens.len()
+            || discriminant(&self.peek().expect("yea").token_type) == discriminant(&TokenType::EOF)
     }
 
-    
     fn peek(&self) -> Result<&Token, ParseError> {
-        self.tokens.get(self.current).ok_or_else(|| ParseError::need_more_tokens(self.previous().line))
+        self.tokens
+            .get(self.current)
+            .ok_or_else(|| ParseError::need_more_tokens(self.previous().line))
     }
-    
+
     fn previous(&self) -> &Token {
-        &self.tokens[self.current-1]
+        &self.tokens[self.current - 1]
     }
-    
-    fn check(&self, tokentype : &TokenType) -> Result<bool, ParseError> {
-        if self.is_at_end() { return Ok(false); }
+
+    fn check(&self, tokentype: &TokenType) -> Result<bool, ParseError> {
+        if self.is_at_end() {
+            return Ok(false);
+        }
         Ok(discriminant(&self.peek()?.token_type) == discriminant(tokentype))
     }
-    
+
     fn advance(&mut self) -> Result<&Token, ParseError> {
         if self.is_at_end() {
-            return Err(ParseError::need_more_tokens(self.previous().line))
+            return Err(ParseError::need_more_tokens(self.previous().line));
         }
         self.current += 1;
         Ok(self.previous())
     }
 
-    fn consume(&mut self, tokentypes : &[TokenType], error_message : &str) -> Result<(), ParseError> {
+    fn consume(&mut self, tokentypes: &[TokenType], error_message: &str) -> Result<(), ParseError> {
         if !self.tokenmatch(tokentypes)? {
             let lexeme = self.peek()?.lexeme_string();
             return Err(ParseError {
                 //message : format!("expected one of {:?}, not {}", tokentypes, lexeme),
-                message : error_message.to_string(),
-                line : self.peek()?.line,
+                message: error_message.to_string(),
+                line: self.peek()?.line,
                 loc: ParseErrorLocation::AtLexeme(lexeme),
             });
         }
@@ -185,7 +181,7 @@ impl Parser {
     }
 
     /// Checks if current token matches any of the given TokenTypes, and advances one token if so
-    fn tokenmatch(&mut self, types : &[TokenType]) -> Result<bool, ParseError> {
+    fn tokenmatch(&mut self, types: &[TokenType]) -> Result<bool, ParseError> {
         for t in types {
             if self.check(t)? {
                 self.advance()?;
@@ -218,7 +214,6 @@ impl Parser {
     fn statement(&mut self) -> Result<Stmt, ParseError> {
         let stmt;
 
-
         if self.tokenmatch(&[TokenType::Print])? {
             stmt = Stmt::PrintStmt(self.expression()?);
         } else if self.tokenmatch(&[TokenType::Var])? {
@@ -233,20 +228,19 @@ impl Parser {
     }
 
     fn var_declaration(&mut self) -> Result<Stmt, ParseError> {
-        let next =  self.advance()?;
+        let next = self.advance()?;
 
         let TokenType::Identifier(identifier) = &next.token_type.clone() else {
-            
             let loc = match self.peek()?.token_type {
                 TokenType::EOF => ParseErrorLocation::AtEnd,
-                _ => ParseErrorLocation::AtLexeme(self.peek()?.lexeme_string())
+                _ => ParseErrorLocation::AtLexeme(self.peek()?.lexeme_string()),
             };
 
-            return Err(ParseError { 
-                message: "Expected identifier".to_string(), 
+            return Err(ParseError {
+                message: "Expected identifier".to_string(),
                 loc,
-                line: self.peek()?.line 
-            })
+                line: self.peek()?.line,
+            });
         };
 
         let next: &Token = self.advance()?;
@@ -254,17 +248,17 @@ impl Parser {
         if !matches!(&next.token_type, TokenType::Equal) {
             let loc: ParseErrorLocation = match self.peek()?.token_type {
                 TokenType::EOF => ParseErrorLocation::AtEnd,
-                _ => ParseErrorLocation::AtLexeme(self.peek()?.lexeme_string())
+                _ => ParseErrorLocation::AtLexeme(self.peek()?.lexeme_string()),
             };
 
-            return Err(ParseError { 
-                message: "Expected '='".to_string(), 
+            return Err(ParseError {
+                message: "Expected '='".to_string(),
                 loc,
                 line,
-            })
+            });
         };
 
-        let assigned_expr = self.expression()?;    
+        let assigned_expr = self.expression()?;
 
         let stmt = Stmt::Var(identifier.to_string(), assigned_expr);
         Ok(stmt)
@@ -273,29 +267,33 @@ impl Parser {
     fn expression(&mut self) -> Result<ExprTree, ParseError> {
         self.equality()
     }
-    
+
     fn equality(&mut self) -> Result<ExprTree, ParseError> {
         let mut expr: ExprTree = self.comparison()?;
 
         while self.tokenmatch(&[TokenType::EqualEqual, TokenType::BangEqual])? {
             let operator: Token = self.previous().clone();
-            let right : ExprTree = self.comparison()?;
+            let right: ExprTree = self.comparison()?;
             expr = ExprTree::Binary(operator, Box::new(expr), Box::new(right));
         }
-    
+
         Ok(expr)
     }
-
 
     fn comparison(&mut self) -> Result<ExprTree, ParseError> {
         let mut expr: ExprTree = self.term()?;
 
-        while self.tokenmatch(&[TokenType::Less, TokenType::LessEqual, TokenType::Greater, TokenType::GreaterEqual])? {
+        while self.tokenmatch(&[
+            TokenType::Less,
+            TokenType::LessEqual,
+            TokenType::Greater,
+            TokenType::GreaterEqual,
+        ])? {
             let operator: Token = self.previous().clone();
-            let right : ExprTree = self.term()?;
+            let right: ExprTree = self.term()?;
             expr = ExprTree::Binary(operator, Box::new(expr), Box::new(right));
         }
-    
+
         Ok(expr)
     }
 
@@ -304,32 +302,32 @@ impl Parser {
 
         while self.tokenmatch(&[TokenType::Minus, TokenType::Plus])? {
             let operator: Token = self.previous().clone();
-            let right : ExprTree = self.factor()?;
+            let right: ExprTree = self.factor()?;
             expr = ExprTree::Binary(operator, Box::new(expr), Box::new(right));
         }
-    
+
         Ok(expr)
     }
-    
+
     fn factor(&mut self) -> Result<ExprTree, ParseError> {
         let mut expr: ExprTree = self.unary()?;
 
         while self.tokenmatch(&[TokenType::Slash, TokenType::Star])? {
             let operator: Token = self.previous().clone();
-            let right : ExprTree = self.unary()?;
+            let right: ExprTree = self.unary()?;
             expr = ExprTree::Binary(operator, Box::new(expr), Box::new(right));
         }
-    
+
         Ok(expr)
     }
 
     fn unary(&mut self) -> Result<ExprTree, ParseError> {
         if self.tokenmatch(&[TokenType::Bang, TokenType::Minus])? {
             let operator: Token = self.previous().clone();
-            let right : ExprTree = self.unary()?;
+            let right: ExprTree = self.unary()?;
             return Ok(ExprTree::Unary(operator, Box::new(right)));
         }
-    
+
         self.primary()
     }
 
@@ -342,23 +340,26 @@ impl Parser {
             TokenType::Number(n) => ExprTree::Literal(LitValue::Number(*n)),
             TokenType::String(s) => ExprTree::Literal(LitValue::StringLit(s.clone())),
             TokenType::LeftParen => {
-                
                 let expr = self.expression()?;
                 self.consume(&[TokenType::RightParen], "Expect ')' after expression")?;
                 ExprTree::Grouping(Box::new(expr))
             }
             TokenType::Identifier(name) => ExprTree::Variable(name.to_string()),
 
-            TokenType::EOF => return Err(ParseError {
-                line : token.line,
-                loc : ParseErrorLocation::AtEnd,
-                message : "Incomplete expression".to_string(),
-            }),
-            _ => return Err(ParseError {
-                line : token.line,
-                loc : ParseErrorLocation::AtLexeme(token.lexeme_string()),
-                message : "Expected terminating token".to_string(),
-            })
+            TokenType::EOF => {
+                return Err(ParseError {
+                    line: token.line,
+                    loc: ParseErrorLocation::AtEnd,
+                    message: "Incomplete expression".to_string(),
+                });
+            }
+            _ => {
+                return Err(ParseError {
+                    line: token.line,
+                    loc: ParseErrorLocation::AtLexeme(token.lexeme_string()),
+                    message: "Expected terminating token".to_string(),
+                });
+            }
         };
 
         Ok(expr)
@@ -366,34 +367,46 @@ impl Parser {
 
     fn synchronize(&mut self) {
         let _ = self.advance();
-        
+
         while !self.is_at_end() {
-            if discriminant(&self.previous().token_type) == discriminant(&TokenType::Semicolon) { return }
-            
+            if discriminant(&self.previous().token_type) == discriminant(&TokenType::Semicolon) {
+                return;
+            }
+
             match self.peek().expect("should not be at end").token_type {
-                TokenType::Class | TokenType::Fun | 
-                TokenType::Var | TokenType::For | 
-                TokenType::If | TokenType::While | 
-                TokenType::Print | TokenType::Return => return,
-                _ => ()
+                TokenType::Class
+                | TokenType::Fun
+                | TokenType::Var
+                | TokenType::For
+                | TokenType::If
+                | TokenType::While
+                | TokenType::Print
+                | TokenType::Return => return,
+                _ => (),
             }
 
             let _ = self.advance();
         }
     }
-
 }
-
 
 #[cfg(test)]
 mod parser_test {
     use super::*;
-    
+
     #[test]
     fn token_match_test() {
-        let mut parser = Parser::new(vec![Token { token_type: TokenType::Number(1.0), lexeme: vec!['1'], line: 0 }]);
+        let mut parser = Parser::new(vec![Token {
+            token_type: TokenType::Number(1.0),
+            lexeme: vec!['1'],
+            line: 0,
+        }]);
 
-        assert!(!parser.tokenmatch(&[TokenType::Star, TokenType::Slash]).unwrap());
+        assert!(
+            !parser
+                .tokenmatch(&[TokenType::Star, TokenType::Slash])
+                .unwrap()
+        );
 
         assert!(parser.tokenmatch(&[TokenType::Number(0f64)]).unwrap());
     }

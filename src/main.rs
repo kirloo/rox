@@ -1,22 +1,19 @@
 use std::env;
 
-use std::io::{stdout, Write};
+use std::io::{Write, stdout};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-
-mod scanning;
-mod parsing;
 mod execution;
+mod parsing;
+mod scanning;
 
-use parsing::{Parser,ParserOutput};
-use scanning::*;
 use execution::interpret;
+use parsing::{Parser, ParserOutput};
+use scanning::*;
 
 static HAD_ERROR: AtomicBool = AtomicBool::new(false);
 
 fn main() {
-
-
     let args: Vec<String> = env::args().collect();
 
     if args.len() > 2 {
@@ -57,9 +54,9 @@ fn run_prompt() {
 
 fn run(script: &str) {
     let mut scanner = Scanner::new(script);
-    
+
     let tokens: Vec<Token> = scanner.scan_tokens();
-    
+
     let parser = Parser::new(tokens);
 
     let parser_output = parser.parse();
@@ -72,8 +69,6 @@ fn run(script: &str) {
             }
         }
     }
-
-    
 }
 
 fn report(line: usize, error_where: &str, message: &str) {
@@ -81,8 +76,7 @@ fn report(line: usize, error_where: &str, message: &str) {
     HAD_ERROR.store(true, Ordering::Relaxed);
 }
 
-
-fn report_raw(message : &str) {
+fn report_raw(message: &str) {
     println!("{}", message);
     HAD_ERROR.store(true, Ordering::Relaxed);
 }

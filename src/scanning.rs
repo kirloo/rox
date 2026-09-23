@@ -1,5 +1,4 @@
-
-fn scan_error(line : usize, message : &str) {
+fn scan_error(line: usize, message: &str) {
     crate::report(line, "", message);
 }
 
@@ -75,7 +74,6 @@ impl Scanner {
     fn is_at_end(&self) -> bool {
         self.current >= self.source.len()
     }
-
 
     fn add_token(&mut self, token_type: TokenType) {
         let token = Token {
@@ -233,11 +231,7 @@ impl Scanner {
 
 impl std::fmt::Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(
-            f,
-            "{:?} {:?}",
-            self.token_type, self.lexeme
-        )
+        write!(f, "{:?} {:?}", self.token_type, self.lexeme)
     }
 }
 
