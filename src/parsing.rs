@@ -264,13 +264,8 @@ impl Parser {
             })
         };
 
-        let assigned_expr = self.expression()?;
-        
-        self.consume(
-            &[TokenType::Semicolon], 
-            "Expect ';' after assignment"
-        )?;
-            
+        let assigned_expr = self.expression()?;    
+
         let stmt = Stmt::Var(identifier.to_string(), assigned_expr);
         Ok(stmt)
     }
