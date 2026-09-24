@@ -7,12 +7,45 @@ fn evaluation_error(error: EvalError) {
 
 struct Environment {
     namespace: BTreeMap<String, Value>,
+    outer: Option<Box<Environment>>,
 }
 
 impl Environment {
     fn new() -> Self {
         let namespace = BTreeMap::new();
-        Environment { namespace }
+        Environment {
+            namespace,
+            outer: None,
+        }
+    }
+
+    fn with_enclosing(outer: Environment) -> Self {
+        let namespace = BTreeMap::new();
+        Environment {
+            namespace,
+            outer: Some(Box::new(outer)),
+        }
+    }
+
+    fn define(&mut self, name: String, value: Value) {
+        self.namespace.insert(name, value);
+    }
+
+    fn lookup(&mut self, name: &str) -> Result<&Value, EvalError> {
+        let value = self.namespace.get(name).ok_or(EvalError {
+            line: 0,
+            kind: EvalErrorKind::Unassigned(name.to_string()),
+        })?;
+        Ok(value)
+    }
+
+    fn assign(&mut self, name: &str, value: Value) -> Result<(), EvalError> {
+        let place = self.namespace.get_mut(name).ok_or(EvalError {
+            line: 0,
+            kind: EvalErrorKind::Unassigned(name.to_string()),
+        })?;
+        *place = value;
+        Ok(())
     }
 }
 
@@ -116,7 +149,7 @@ fn execute(stmt: Stmt, env: &mut Environment) -> Result<(), EvalError> {
         Stmt::PrintStmt(expr) => println!("{}", evaluate(expr, env)?),
         Stmt::Var(ident, expr) => {
             let evaluated = evaluate(expr, env)?;
-            env.namespace.insert(ident, evaluated);
+            env.define(ident, evaluated);
         }
     }
     Ok(())
@@ -134,25 +167,11 @@ fn evaluate(expression: ExprTree, env: &mut Environment) -> Result<Value, EvalEr
         ExprTree::Literal(LitValue::Number(x)) => Ok(Value::Number(x)),
         ExprTree::Literal(LitValue::StringLit(s)) => Ok(Value::String(s)),
         ExprTree::Literal(LitValue::Nil) => Ok(Value::Nil),
-        ExprTree::Variable(name) => match env.namespace.get(&name) {
-            Some(value) => Ok(value.clone()),
-            None => Err(EvalError {
-                line: 0,
-                kind: EvalErrorKind::Unassigned(name),
-            }),
-        },
+        ExprTree::Variable(name) => env.lookup(&name).cloned(),
         ExprTree::Assignment(name, expr_tree) => {
-            if env.namespace.contains_key(&name) {
-                let value = evaluate(*expr_tree, env)?;
-                let place = env.namespace.get_mut(&name).unwrap();
-                *place = value.clone();
-                Ok(value)
-            } else {
-                Err(EvalError {
-                    line: 0,
-                    kind: EvalErrorKind::Unassigned(name),
-                })
-            }
+            let value = evaluate(*expr_tree, env)?;
+            env.assign(&name, value.clone());
+            Ok(value)
         }
     }
 }
