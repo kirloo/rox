@@ -6,46 +6,62 @@ fn evaluation_error(error: EvalError) {
 }
 
 struct Environment {
-    namespace: BTreeMap<String, Value>,
-    outer: Option<Box<Environment>>,
+    namespaces: Vec<BTreeMap<String, Value>>,
 }
 
 impl Environment {
     fn new() -> Self {
-        let namespace = BTreeMap::new();
+        let namespaces = vec![BTreeMap::new()];
         Environment {
-            namespace,
-            outer: None,
+            namespaces,
         }
     }
 
     fn with_enclosing(outer: Environment) -> Self {
-        let namespace = BTreeMap::new();
+        let namespaces = vec![BTreeMap::new()];
         Environment {
-            namespace,
-            outer: Some(Box::new(outer)),
+            namespaces,
         }
     }
 
     fn define(&mut self, name: String, value: Value) {
-        self.namespace.insert(name, value);
+        self.namespaces.last_mut().unwrap().insert(name, value);
     }
 
     fn lookup(&mut self, name: &str) -> Result<&Value, EvalError> {
-        let value = self.namespace.get(name).ok_or(EvalError {
-            line: 0,
-            kind: EvalErrorKind::Unassigned(name.to_string()),
-        })?;
+        let Some(scope_idx) = self.first_outer_scope_with_name(name) else {
+            return Err(EvalError {
+                line: 0,
+                kind: EvalErrorKind::Unassigned(name.to_string()),
+            });
+        };
+
+        let scope = self.namespaces.get_mut(scope_idx).unwrap();
+        let value = scope.get(name).unwrap();
         Ok(value)
     }
 
     fn assign(&mut self, name: &str, value: Value) -> Result<(), EvalError> {
-        let place = self.namespace.get_mut(name).ok_or(EvalError {
-            line: 0,
-            kind: EvalErrorKind::Unassigned(name.to_string()),
-        })?;
+        let Some(scope_idx) = self.first_outer_scope_with_name(name) else {
+            return Err(EvalError {
+                line: 0,
+                kind: EvalErrorKind::Unassigned(name.to_string()),
+            });
+        };
+
+        let scope = self.namespaces.get_mut(scope_idx).unwrap();
+        let place = scope.get_mut(name).unwrap();
         *place = value;
         Ok(())
+    }
+
+    fn first_outer_scope_with_name(&mut self, name: &str) -> Option<usize> {
+        for i in (0..self.namespaces.len()).rev() {
+            if self.namespaces[i].contains_key(name) {
+                return Some(i);
+            }
+        }
+        None
     }
 }
 
