@@ -12,16 +12,7 @@ struct Environment {
 impl Environment {
     fn new() -> Self {
         let namespaces = vec![BTreeMap::new()];
-        Environment {
-            namespaces,
-        }
-    }
-
-    fn with_enclosing(outer: Environment) -> Self {
-        let namespaces = vec![BTreeMap::new()];
-        Environment {
-            namespaces,
-        }
+        Environment { namespaces }
     }
 
     fn define(&mut self, name: String, value: Value) {
@@ -186,7 +177,7 @@ fn evaluate(expression: ExprTree, env: &mut Environment) -> Result<Value, EvalEr
         ExprTree::Variable(name) => env.lookup(&name).cloned(),
         ExprTree::Assignment(name, expr_tree) => {
             let value = evaluate(*expr_tree, env)?;
-            env.assign(&name, value.clone());
+            env.assign(&name, value.clone())?;
             Ok(value)
         }
     }
