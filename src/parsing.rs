@@ -58,6 +58,9 @@ pub enum Stmt {
     ExprStmt(ExprTree),
     PrintStmt(ExprTree),
     Var(String, ExprTree),
+    Block(Vec<Stmt>),
+}
+
 // TODO use to propagate line number to parsing errors?
 pub struct Expression {
     line: u32,
@@ -223,6 +226,8 @@ impl Parser {
             stmt = Stmt::PrintStmt(self.expression()?);
         } else if self.tokenmatch(&[TokenType::Var])? {
             stmt = self.var_declaration()?;
+        } else if self.tokenmatch(&[TokenType::LeftBrace])? {
+            stmt = Stmt::Block(self.block()?);
         } else {
             stmt = Stmt::ExprStmt(self.expression()?);
         }
@@ -267,6 +272,21 @@ impl Parser {
 
         let stmt = Stmt::Var(identifier.to_string(), assigned_expr);
         Ok(stmt)
+    }
+
+    fn block(&mut self) -> Result<Vec<Stmt>, ParseError> {
+        let mut block_statements = Vec::new();
+
+        while self.check(&TokenType::RightBrace)? && !self.is_at_end() {
+            block_statements.push(self.statement()?);
+        }
+
+        self.consume(
+            &[TokenType::RightBrace],
+            "Expect closing brace at end of block",
+        )?;
+
+        return Ok(block_statements)
     }
 
     fn expression(&mut self) -> Result<ExprTree, ParseError> {
