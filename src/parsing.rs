@@ -58,6 +58,10 @@ pub enum Stmt {
     ExprStmt(ExprTree),
     PrintStmt(ExprTree),
     Var(String, ExprTree),
+// TODO use to propagate line number to parsing errors?
+pub struct Expression {
+    line: u32,
+    tree: ExprTree,
 }
 
 #[derive(Clone, Debug)]
