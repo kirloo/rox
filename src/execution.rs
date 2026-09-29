@@ -14,6 +14,16 @@ impl Environment {
         let namespaces = vec![HashMap::new()];
         Environment { namespaces }
     }
+    
+    fn enter_inner(&mut self) {
+        let inner = HashMap::new();
+
+        self.namespaces.push(inner);
+    }
+
+    fn leave_inner(&mut self) {
+        self.namespaces.pop();
+    }
 
     fn define(&mut self, name: String, value: Value) {
         self.namespaces.last_mut().unwrap().insert(name, value);
@@ -157,8 +167,21 @@ fn execute(stmt: Stmt, env: &mut Environment) -> Result<(), EvalError> {
         Stmt::Var(ident, expr) => {
             let evaluated = evaluate(expr, env)?;
             env.define(ident, evaluated);
-        }
+        },
+        Stmt::Block(statements) => {
+            execute_block(statements, env)?;
+        },
     }
+    Ok(())
+}
+
+fn execute_block(block: Vec<Stmt>, env: &mut Environment) -> Result<(), EvalError> {
+    env.enter_inner();
+
+    for stmt in block {
+        execute(stmt, env)?;
+    }
+
     Ok(())
 }
 
