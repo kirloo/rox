@@ -1,17 +1,17 @@
 use crate::{parsing::*, scanning::*};
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 fn evaluation_error(error: EvalError) {
     crate::report_raw(&error.to_string())
 }
 
 struct Environment {
-    namespaces: Vec<BTreeMap<String, Value>>,
+    namespaces: Vec<HashMap<String, Value>>,
 }
 
 impl Environment {
     fn new() -> Self {
-        let namespaces = vec![BTreeMap::new()];
+        let namespaces = vec![HashMap::new()];
         Environment { namespaces }
     }
 
