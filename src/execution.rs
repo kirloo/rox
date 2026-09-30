@@ -182,6 +182,8 @@ fn execute_block(block: Vec<Stmt>, env: &mut Environment) -> Result<(), EvalErro
         execute(stmt, env)?;
     }
 
+    env.leave_inner();
+
     Ok(())
 }
 
