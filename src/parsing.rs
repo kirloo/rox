@@ -260,15 +260,27 @@ impl Parser {
         };
 
         let next: &Token = self.advance()?;
+
         let line = next.line;
         if !matches!(&next.token_type, TokenType::Equal) {
+            if matches!(next.token_type, TokenType::Semicolon) {
+                // Initialize to Nil
+                return Ok(Stmt::Var(
+                    identifier.to_string(),
+                    ExprTree::Literal(LitValue::Nil),
+                ));
+            }
             let loc: ParseErrorLocation = match self.peek()?.token_type {
                 TokenType::EOF => ParseErrorLocation::AtEnd,
                 _ => ParseErrorLocation::AtLexeme(self.peek()?.lexeme_string()),
             };
 
             return Err(ParseError {
-                message: "Expected '='".to_string(),
+                message: format!(
+                    "Expected '=' or ';' after var {:?}, not {:?}",
+                    self.previous(),
+                    self.tokens[self.current],
+                ),
                 loc,
                 line,
             });

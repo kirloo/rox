@@ -154,6 +154,7 @@ pub fn interpret(program: Vec<Stmt>) {
     let mut environment = Environment::new();
 
     for stmt in program {
+        // TODO handle errors
         execute(stmt, &mut environment).unwrap();
     }
 }

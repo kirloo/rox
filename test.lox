@@ -9,6 +9,12 @@ x = 7;
 print x;
 }
 
+var y;
+print y;
+
+var f = true;
+print f;
+
 print x;
 x = 10;
 print x;
