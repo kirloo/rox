@@ -200,11 +200,11 @@ impl Parser {
     }
 
     fn program(&mut self) -> ParserOutput {
-        let mut statements = Vec::new();
+        let mut decls = Vec::new();
         let mut errors = Vec::new();
         while !self.is_at_end() {
-            match self.statement() {
-                Ok(stmt) => statements.push(stmt),
+            match self.declaration() {
+                Ok(stmt) => decls.push(stmt),
                 Err(e) => {
                     errors.push(e);
                     self.synchronize();
@@ -213,9 +213,17 @@ impl Parser {
         }
 
         if errors.is_empty() {
-            ParserOutput::Good(statements)
+            ParserOutput::Good(decls)
         } else {
             ParserOutput::Bad(errors)
+        }
+    }
+
+    fn declaration(&mut self) -> Result<Stmt, ParseError> {
+        if self.tokenmatch(&[TokenType::Var])? {
+            self.var_declaration()
+        } else {
+            self.statement()
         }
     }
 
@@ -225,9 +233,6 @@ impl Parser {
         if self.tokenmatch(&[TokenType::Print])? {
             stmt = Stmt::PrintStmt(self.expression()?);
             self.consume(&[TokenType::Semicolon], "Expect ';' after print statement")?;
-        } else if self.tokenmatch(&[TokenType::Var])? {
-            stmt = self.var_declaration()?;
-            self.consume(&[TokenType::Semicolon], "Expect ';' after variable declaration")?;
         } else if self.tokenmatch(&[TokenType::LeftBrace])? {
             stmt = Stmt::Block(self.block()?);
         } else {
@@ -271,15 +276,17 @@ impl Parser {
 
         let assigned_expr = self.expression()?;
 
+        self.consume(&[TokenType::Semicolon], "Expect ';' after variable declaration")?;
+
         let stmt = Stmt::Var(identifier.to_string(), assigned_expr);
         Ok(stmt)
     }
 
     fn block(&mut self) -> Result<Vec<Stmt>, ParseError> {
-        let mut block_statements = Vec::new();
+        let mut block_decls = Vec::new();
 
         while !self.check(&TokenType::RightBrace)? && !self.is_at_end() {
-            block_statements.push(self.statement()?);
+            block_decls.push(self.declaration()?);
         }
 
         self.consume(
@@ -287,7 +294,7 @@ impl Parser {
             "Expect closing brace at end of block",
         )?;
 
-        return Ok(block_statements)
+        return Ok(block_decls)
     }
 
     fn expression(&mut self) -> Result<ExprTree, ParseError> {
@@ -395,11 +402,11 @@ impl Parser {
                     message: "Incomplete expression".to_string(),
                 });
             }
-            _ => {
+            t => {
                 return Err(ParseError {
                     line: token.line,
                     loc: ParseErrorLocation::AtLexeme(token.lexeme_string()),
-                    message: "Expected terminating token".to_string(),
+                    message: format!("Expected terminating token, not {:?}", t),
                 });
             }
         };
