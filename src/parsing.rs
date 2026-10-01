@@ -276,7 +276,10 @@ impl Parser {
 
         let assigned_expr = self.expression()?;
 
-        self.consume(&[TokenType::Semicolon], "Expect ';' after variable declaration")?;
+        self.consume(
+            &[TokenType::Semicolon],
+            "Expect ';' after variable declaration",
+        )?;
 
         let stmt = Stmt::Var(identifier.to_string(), assigned_expr);
         Ok(stmt)
@@ -294,7 +297,7 @@ impl Parser {
             "Expect closing brace at end of block",
         )?;
 
-        return Ok(block_decls)
+        return Ok(block_decls);
     }
 
     fn expression(&mut self) -> Result<ExprTree, ParseError> {

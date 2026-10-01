@@ -14,7 +14,7 @@ impl Environment {
         let namespaces = vec![HashMap::new()];
         Environment { namespaces }
     }
-    
+
     fn enter_inner(&mut self) {
         let inner = HashMap::new();
 
@@ -167,10 +167,10 @@ fn execute(stmt: Stmt, env: &mut Environment) -> Result<(), EvalError> {
         Stmt::Var(ident, expr) => {
             let evaluated = evaluate(expr, env)?;
             env.define(ident, evaluated);
-        },
+        }
         Stmt::Block(statements) => {
             execute_block(statements, env)?;
-        },
+        }
     }
     Ok(())
 }
