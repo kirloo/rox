@@ -113,6 +113,7 @@ enum EvalErrorKind {
     Unary(Token, Value),
     Binary(Token, Value, Value),
     Unassigned(String),
+    TypeError { expected: String, found: Value },
 }
 
 impl std::fmt::Display for EvalError {
@@ -137,6 +138,11 @@ impl std::fmt::Display for EvalError {
                 f,
                 "[line {}] Error at {}: unassigned identifier '{}'",
                 self.line, ident, ident
+            ),
+            EvalErrorKind::TypeError { expected, found } => write!(
+                f,
+                "[line {}] Error at {}: expected type {}, found {}",
+                self.line, found, expected, found,
             ),
         }
     }
@@ -172,6 +178,24 @@ fn execute(stmt: Stmt, env: &mut Environment) -> Result<(), EvalError> {
         Stmt::Block(statements) => {
             execute_block(statements, env)?;
         }
+        Stmt::IfStmt(cond, b1, b2) => match evaluate(cond, env)? {
+            Value::Bool(bool) => {
+                if bool {
+                    execute(*b1, env)?;
+                } else if let Some(b2) = b2 {
+                    execute(*b2, env)?;
+                }
+            }
+            val => {
+                return Err(EvalError {
+                    line: 0,
+                    kind: EvalErrorKind::TypeError {
+                        expected: "bool".to_string(),
+                        found: val,
+                    },
+                });
+            }
+        },
     }
     Ok(())
 }

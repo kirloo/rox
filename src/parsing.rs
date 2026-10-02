@@ -59,6 +59,7 @@ pub enum Stmt {
     PrintStmt(ExprTree),
     Var(String, ExprTree),
     Block(Vec<Stmt>),
+    IfStmt(ExprTree, Box<Stmt>, Option<Box<Stmt>>),
 }
 
 // TODO use to propagate line number to parsing errors?
@@ -235,6 +236,8 @@ impl Parser {
             self.consume(&[TokenType::Semicolon], "Expect ';' after print statement")?;
         } else if self.tokenmatch(&[TokenType::LeftBrace])? {
             stmt = Stmt::Block(self.block()?);
+        } else if self.tokenmatch(&[TokenType::If])? {
+            stmt = self.if_stmt()?;
         } else {
             stmt = Stmt::ExprStmt(self.expression()?);
             self.consume(&[TokenType::Semicolon], "Expect ';' after expression")?;
@@ -295,6 +298,22 @@ impl Parser {
 
         let stmt = Stmt::Var(identifier.to_string(), assigned_expr);
         Ok(stmt)
+    }
+
+    fn if_stmt(&mut self) -> Result<Stmt, ParseError> {
+        self.consume(&[TokenType::LeftParen], "Expect '(' after 'if'.")?;
+        let condition = self.expression()?;
+        self.consume(&[TokenType::RightParen], "Expect ')' after condition.")?;
+
+        let first_branch = Box::new(self.statement()?);
+
+        let second_branch = if self.tokenmatch(&[TokenType::Else])? {
+            Some(Box::new(self.statement()?))
+        } else {
+            None
+        };
+
+        Ok(Stmt::IfStmt(condition, first_branch, second_branch))
     }
 
     fn block(&mut self) -> Result<Vec<Stmt>, ParseError> {
