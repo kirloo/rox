@@ -9,6 +9,12 @@ x = 7;
 print x;
 }
 
+if (1 == 2) {
+    print "fizz";
+} else {
+    print "buzz";
+}
+
 var y;
 print y;
 
