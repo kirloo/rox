@@ -1,6 +1,6 @@
-use crate::scanning::{TokenType::LeftParen, *};
-
 use std::mem::discriminant;
+
+use crate::scanning::{Token, TokenType};
 
 fn parse_error(token: Token, message: &str) {
     use std::mem::discriminant;
