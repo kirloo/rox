@@ -343,8 +343,15 @@ impl Parser {
 
             let value = self.assignment()?;
 
-            if let ExprTree::Variable(name) = expr {
-                return Ok(ExprTree::Assignment(name, Box::new(value)));
+            match expr {
+                ExprTree::Variable(name) => return Ok(ExprTree::Assignment(name, Box::new(value))),
+                target => {
+                    return Err(ParseError {
+                        message: format!("Invalid assignment target: {}", target),
+                        loc: ParseErrorLocation::AtLexeme(target.string_repr()),
+                        line: self.previous().line,
+                    });
+                }
             }
         }
 
