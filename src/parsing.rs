@@ -338,9 +338,9 @@ impl Parser {
 
         let mut initializer = Stmt::ExprStmt(ExprTree::Literal(LitValue::Nil));
 
-        if !self.tokenmatch(&[TokenType::Semicolon])? && self.tokenmatch(&[TokenType::Var])? {
+        if self.tokenmatch(&[TokenType::Var])? {
             initializer = self.var_declaration()?;
-        } else {
+        } else if !self.tokenmatch(&[TokenType::Semicolon])? {
             initializer = Stmt::ExprStmt(self.expression()?);
         }
 
