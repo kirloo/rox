@@ -1,20 +1,8 @@
-var x = 4;
-var x = 5 + x;
-print x;
+var a = 0;
+var temp;
 
-{
-var x = 5;
-print x;
-x = 7;
-print x;
+for (var b = 1; a < 10000; b = temp + b) {
+  print a;
+  temp = a;
+  a = b;
 }
-
-print "GO!";
-var s = 0;
-
-while (s <= 5) {
-    print s;
-    s = s + 1;
-}
-
-print "wahoo";
