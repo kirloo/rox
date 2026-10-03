@@ -1,4 +1,4 @@
-use crate::scanning::*;
+use crate::scanning::{TokenType::LeftParen, *};
 
 use std::mem::discriminant;
 
@@ -243,6 +243,8 @@ impl Parser {
             stmt = self.if_stmt()?;
         } else if self.tokenmatch(&[TokenType::While])? {
             stmt = self.while_loop()?;
+        } else if self.tokenmatch(&[TokenType::For])? {
+            stmt = self.for_loop()?;
         } else {
             stmt = Stmt::ExprStmt(self.expression()?);
             self.consume(&[TokenType::Semicolon], "Expect ';' after expression")?;
@@ -261,7 +263,7 @@ impl Parser {
             };
 
             return Err(ParseError {
-                message: "Expected identifier".to_string(),
+                message: "Expected identifier after 'var'".to_string(),
                 loc,
                 line: self.peek()?.line,
             });
@@ -320,7 +322,7 @@ impl Parser {
 
         Ok(Stmt::IfStmt(condition, first_branch, second_branch))
     }
-    
+
     fn while_loop(&mut self) -> Result<Stmt, ParseError> {
         self.consume(&[TokenType::LeftParen], "Expect '(' after 'while'.")?;
         let condition = self.expression()?;
@@ -329,6 +331,43 @@ impl Parser {
         let body = Box::new(self.statement()?);
 
         Ok(Stmt::WhileLoop(condition, body))
+    }
+
+    fn for_loop(&mut self) -> Result<Stmt, ParseError> {
+        self.consume(&[LeftParen], "Expect '(' after 'for'")?;
+
+        let mut initializer = Stmt::ExprStmt(ExprTree::Literal(LitValue::Nil));
+
+        if !self.tokenmatch(&[TokenType::Semicolon])? && self.tokenmatch(&[TokenType::Var])? {
+            initializer = self.var_declaration()?;
+        } else {
+            initializer = Stmt::ExprStmt(self.expression()?);
+        }
+
+        let mut condition = ExprTree::Literal(LitValue::Nil);
+        if !self.check(&TokenType::Semicolon)? {
+            condition = self.expression()?;
+        }
+        self.consume(
+            &[TokenType::Semicolon],
+            "Expect ';' after for loop condition.",
+        )?;
+
+        let mut increment = ExprTree::Literal(LitValue::Nil);
+        if !self.check(&TokenType::RightParen)? {
+            increment = self.expression()?;
+        }
+        self.consume(
+            &[TokenType::RightParen],
+            "Expect ')' after for loop increment",
+        )?;
+
+        let body = self.statement()?;
+        let body = Stmt::Block(vec![body, Stmt::ExprStmt(increment)]);
+
+        let while_loop = Stmt::WhileLoop(condition, Box::new(body));
+
+        Ok(Stmt::Block(vec![initializer, while_loop]))
     }
 
     fn block(&mut self) -> Result<Vec<Stmt>, ParseError> {
