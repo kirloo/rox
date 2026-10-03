@@ -196,6 +196,11 @@ fn execute(stmt: Stmt, env: &mut Environment) -> Result<(), EvalError> {
                 });
             }
         },
+        Stmt::WhileLoop(cond, body) => {
+            while is_truthy(&evaluate(cond.clone(), env)?) {
+                execute(*body.clone(), env)?
+            }
+        }
     }
     Ok(())
 }
@@ -218,6 +223,17 @@ fn evaluate(expression: ExprTree, env: &mut Environment) -> Result<Value, EvalEr
 
         ExprTree::Unary(token, subexpr) => evaluate_unary(token, *subexpr, env),
         ExprTree::Binary(token, left, right) => evaluate_binary(token, *left, *right, env),
+        ExprTree::Logical(token, left, right) => {
+            let left_value = evaluate(*left, env)?;
+            if matches!(token.token_type, TokenType::Or) {
+                if is_truthy(&left_value) {
+                    return Ok(left_value);
+                }
+            } else if !is_truthy(&left_value) {
+                return Ok(left_value);
+            }
+            evaluate(*right, env)
+        }
 
         ExprTree::Literal(LitValue::False) => Ok(Value::Bool(false)),
         ExprTree::Literal(LitValue::True) => Ok(Value::Bool(true)),
@@ -237,7 +253,7 @@ fn evaluate_unary(token: Token, expr: ExprTree, env: &mut Environment) -> Result
     let subvalue = evaluate(expr, env)?;
 
     match (&token.token_type, subvalue) {
-        (TokenType::Bang, subvalue) => Ok(Value::Bool(!is_truthy(subvalue))),
+        (TokenType::Bang, subvalue) => Ok(Value::Bool(!is_truthy(&subvalue))),
         (TokenType::Minus, Value::Number(x)) => Ok(Value::Number(-x)),
         (_, value) => Err(EvalError {
             line: token.line,
@@ -283,7 +299,7 @@ fn evaluate_binary(
     }
 }
 
-fn is_truthy(value: Value) -> bool {
+fn is_truthy(value: &Value) -> bool {
     match value {
         Value::Bool(false) | Value::Nil => false,
         _ => true,

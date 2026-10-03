@@ -60,6 +60,7 @@ pub enum Stmt {
     Var(String, ExprTree),
     Block(Vec<Stmt>),
     IfStmt(ExprTree, Box<Stmt>, Option<Box<Stmt>>),
+    WhileLoop(ExprTree, Box<Stmt>),
 }
 
 // TODO use to propagate line number to parsing errors?
@@ -71,6 +72,7 @@ pub struct Expression {
 #[derive(Clone, Debug)]
 pub enum ExprTree {
     Binary(Token, Box<ExprTree>, Box<ExprTree>),
+    Logical(Token, Box<ExprTree>, Box<ExprTree>),
     Unary(Token, Box<ExprTree>),
     Grouping(Box<ExprTree>),
     Literal(LitValue),
@@ -95,7 +97,8 @@ impl ExprTree {
             ExprTree::Unary(token, subexpr) => {
                 format!("({} {})", token.lexeme_string(), Self::to_string(subexpr))
             }
-            ExprTree::Binary(token, leftexpr, rightexpr) => format!(
+            ExprTree::Binary(token, leftexpr, rightexpr)
+            | ExprTree::Logical(token, leftexpr, rightexpr) => format!(
                 "({} {} {})",
                 token.lexeme_string(),
                 Self::to_string(leftexpr),
@@ -238,6 +241,8 @@ impl Parser {
             stmt = Stmt::Block(self.block()?);
         } else if self.tokenmatch(&[TokenType::If])? {
             stmt = self.if_stmt()?;
+        } else if self.tokenmatch(&[TokenType::While])? {
+            stmt = self.while_loop()?;
         } else {
             stmt = Stmt::ExprStmt(self.expression()?);
             self.consume(&[TokenType::Semicolon], "Expect ';' after expression")?;
@@ -315,6 +320,16 @@ impl Parser {
 
         Ok(Stmt::IfStmt(condition, first_branch, second_branch))
     }
+    
+    fn while_loop(&mut self) -> Result<Stmt, ParseError> {
+        self.consume(&[TokenType::LeftParen], "Expect '(' after 'while'.")?;
+        let condition = self.expression()?;
+        self.consume(&[TokenType::RightParen], "Expect ')' after condition.")?;
+
+        let body = Box::new(self.statement()?);
+
+        Ok(Stmt::WhileLoop(condition, body))
+    }
 
     fn block(&mut self) -> Result<Vec<Stmt>, ParseError> {
         let mut block_decls = Vec::new();
@@ -336,7 +351,7 @@ impl Parser {
     }
 
     fn assignment(&mut self) -> Result<ExprTree, ParseError> {
-        let expr = self.equality()?;
+        let expr = self.or()?;
 
         if self.tokenmatch(&[TokenType::Equal])? {
             let equals = self.previous();
@@ -356,6 +371,31 @@ impl Parser {
         }
 
         return Ok(expr);
+    }
+
+    // Reusing code hmmmm
+    fn or(&mut self) -> Result<ExprTree, ParseError> {
+        let mut expr = self.and()?;
+
+        while self.tokenmatch(&[TokenType::Or])? {
+            let operator = self.previous().clone();
+            let right = self.and()?;
+            expr = ExprTree::Logical(operator, Box::new(expr), Box::new(right));
+        }
+
+        Ok(expr)
+    }
+
+    fn and(&mut self) -> Result<ExprTree, ParseError> {
+        let mut expr = self.equality()?;
+
+        while self.tokenmatch(&[TokenType::And])? {
+            let operator = self.previous().clone();
+            let right = self.equality()?;
+            expr = ExprTree::Logical(operator, Box::new(expr), Box::new(right));
+        }
+
+        Ok(expr)
     }
 
     fn equality(&mut self) -> Result<ExprTree, ParseError> {

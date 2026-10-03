@@ -9,18 +9,12 @@ x = 7;
 print x;
 }
 
-if (1 == 2) {
-    print "fizz";
-} else {
-    print "buzz";
+print "GO!";
+var s = 0;
+
+while (s <= 5) {
+    print s;
+    s = s + 1;
 }
 
-var y;
-print y;
-
-var f = true;
-print f;
-
-print x;
-x = 10;
-print x;
+print "wahoo";
