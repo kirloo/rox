@@ -334,7 +334,7 @@ impl Parser {
     }
 
     fn for_loop(&mut self) -> Result<Stmt, ParseError> {
-        self.consume(&[LeftParen], "Expect '(' after 'for'")?;
+        self.consume(&[TokenType::LeftParen], "Expect '(' after 'for'")?;
 
         let mut initializer = Stmt::ExprStmt(ExprTree::Literal(LitValue::Nil));
 
