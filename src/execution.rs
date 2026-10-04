@@ -1,77 +1,102 @@
-use crate::{parsing::*, scanning::*};
-use std::collections::HashMap;
+use crate::{native_functions, parsing::*, scanning::*};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 fn evaluation_error(error: EvalError) {
     crate::report_raw(&error.to_string())
 }
 
+type EnvRef = Rc<RefCell<Environment>>;
+
 struct Environment {
-    namespaces: Vec<HashMap<String, Value>>,
+    namespace: HashMap<String, Value>,
+    enclosing: Option<EnvRef>,
 }
 
 impl Environment {
     fn new() -> Self {
-        let namespaces = vec![HashMap::new()];
-        Environment { namespaces }
+        let env = Environment {
+            namespace: HashMap::new(),
+            enclosing: None,
+        };
+
+        env
     }
 
-    fn enter_inner(&mut self) {
-        let inner = HashMap::new();
-
-        self.namespaces.push(inner);
-    }
-
-    fn leave_inner(&mut self) {
-        self.namespaces.pop();
+    fn new_inner(outer: EnvRef) -> Self {
+        Environment {
+            namespace: HashMap::new(),
+            enclosing: Some(outer),
+        }
     }
 
     fn define(&mut self, name: String, value: Value) {
-        self.namespaces.last_mut().unwrap().insert(name, value);
+        self.namespace.insert(name, value);
     }
 
-    fn lookup(&mut self, name: &str) -> Result<&Value, EvalError> {
-        let Some(scope_idx) = self.first_outer_scope_with_name(name) else {
-            return Err(EvalError {
+    fn lookup(&self, name: &str) -> Result<Value, EvalError> {
+        if let Some(value) = self.namespace.get(name) {
+            return Ok(value.clone());
+        }
+
+        match &self.enclosing {
+            Some(outer) => outer.as_ref().borrow().lookup(name),
+            None => Err(EvalError {
                 line: 0,
                 kind: EvalErrorKind::Unassigned(name.to_string()),
-            });
-        };
-
-        let scope = self.namespaces.get_mut(scope_idx).unwrap();
-        let value = scope.get(name).unwrap();
-        Ok(value)
+            }),
+        }
     }
 
     fn assign(&mut self, name: &str, value: Value) -> Result<(), EvalError> {
-        let Some(scope_idx) = self.first_outer_scope_with_name(name) else {
-            return Err(EvalError {
+        if self.namespace.contains_key(name) {
+            self.namespace.insert(name.to_string(), value);
+            return Ok(());
+        }
+
+        match &self.enclosing {
+            Some(outer) => outer.borrow_mut().assign(name, value),
+            None => Err(EvalError {
                 line: 0,
                 kind: EvalErrorKind::Unassigned(name.to_string()),
-            });
-        };
-
-        let scope = self.namespaces.get_mut(scope_idx).unwrap();
-        let place = scope.get_mut(name).unwrap();
-        *place = value;
-        Ok(())
-    }
-
-    fn first_outer_scope_with_name(&mut self, name: &str) -> Option<usize> {
-        for i in (0..self.namespaces.len()).rev() {
-            if self.namespaces[i].contains_key(name) {
-                return Some(i);
-            }
+            }),
         }
-        None
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-enum Value {
+fn root_env(current: EnvRef) -> EnvRef {
+    let Some(enclosing) = current.borrow().enclosing.clone() else {
+        return current;
+    };
+
+    root_env(enclosing)
+}
+
+#[derive(Clone, Debug)]
+pub enum Value {
     Number(f64),
     String(String),
     Bool(bool),
     Nil,
+    Func(Vec<String>, FuncImpl),
+}
+
+pub type NativeFn = fn(Vec<Value>) -> Result<Value, EvalError>;
+
+#[derive(Clone, Debug)]
+pub enum FuncImpl {
+    LoxFunc(Vec<Stmt>),
+    Native(NativeFn),
+}
+
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Number(l0), Self::Number(r0)) => l0 == r0,
+            (Self::String(l0), Self::String(r0)) => l0 == r0,
+            (Self::Bool(l0), Self::Bool(r0)) => l0 == r0,
+            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+        }
+    }
 }
 
 impl Value {
@@ -88,6 +113,7 @@ impl Value {
             Self::String(s) => s,
             Self::Bool(b) => b.to_string(),
             Self::Nil => "nil".to_string(),
+            Self::Func(params, func) => "a function".to_string(),
         }
     }
 
@@ -98,22 +124,24 @@ impl Value {
             Self::String(_) => "string",
             Self::Bool(_) => "bool",
             Self::Nil => "nil",
+            Self::Func(_, _) => "function",
         }
     }
 }
 
 #[derive(Debug)]
-struct EvalError {
+pub struct EvalError {
     line: usize,
     kind: EvalErrorKind,
 }
 
 #[derive(Debug)]
-enum EvalErrorKind {
+pub enum EvalErrorKind {
     Unary(Token, Value),
     Binary(Token, Value, Value),
     Unassigned(String),
     TypeError { expected: String, found: Value },
+    ArgumentMismatch { expected: usize, found: usize },
 }
 
 impl std::fmt::Display for EvalError {
@@ -144,6 +172,11 @@ impl std::fmt::Display for EvalError {
                 "[line {}] Error at {}: expected type {}, found {}",
                 self.line, found, expected, found,
             ),
+            EvalErrorKind::ArgumentMismatch { expected, found } => write!(
+                f,
+                "[line {}] Error in call: expected {} arguments, found {}.",
+                self.line, expected, found
+            ),
         }
     }
 }
@@ -157,28 +190,38 @@ impl std::fmt::Display for Value {
 }
 
 pub fn interpret(program: Vec<Stmt>) {
-    let mut environment = Environment::new();
+    let mut global_env = Environment::new();
+
+    global_env.define(
+        "clock".to_string(),
+        Value::Func(vec![], FuncImpl::Native(native_functions::clock)),
+    );
+
+    let global_envref = Rc::new(RefCell::new(global_env));
+
+    let base_env = Environment::new_inner(global_envref);
+    let base_envref = Rc::new(RefCell::new(base_env));
 
     for stmt in program {
         // TODO handle errors
-        execute(stmt, &mut environment).unwrap();
+        execute(stmt, base_envref.clone()).unwrap();
     }
 }
 
-fn execute(stmt: Stmt, env: &mut Environment) -> Result<(), EvalError> {
+fn execute(stmt: Stmt, env: EnvRef) -> Result<(), EvalError> {
     match stmt {
         Stmt::ExprStmt(expr) => {
             evaluate(expr, env)?;
         }
         Stmt::PrintStmt(expr) => println!("{}", evaluate(expr, env)?),
         Stmt::Var(ident, expr) => {
-            let evaluated = evaluate(expr, env)?;
-            env.define(ident, evaluated);
+            let evaluated = evaluate(expr, env.clone())?;
+            env.borrow_mut().define(ident, evaluated);
         }
         Stmt::Block(statements) => {
             execute_block(statements, env)?;
         }
-        Stmt::IfStmt(cond, b1, b2) => match evaluate(cond, env)? {
+        Stmt::IfStmt(cond, b1, b2) => match evaluate(cond, env.clone())? {
             Value::Bool(bool) => {
                 if bool {
                     execute(*b1, env)?;
@@ -197,34 +240,33 @@ fn execute(stmt: Stmt, env: &mut Environment) -> Result<(), EvalError> {
             }
         },
         Stmt::WhileLoop(cond, body) => {
-            while is_truthy(&evaluate(cond.clone(), env)?) {
-                execute(*body.clone(), env)?
+            while is_truthy(&evaluate(cond.clone(), env.clone())?) {
+                execute(*body.clone(), env.clone())?
             }
         }
     }
     Ok(())
 }
 
-fn execute_block(block: Vec<Stmt>, env: &mut Environment) -> Result<(), EvalError> {
-    env.enter_inner();
+fn execute_block(block: Vec<Stmt>, env: EnvRef) -> Result<(), EvalError> {
+    let env = Environment::new_inner(env);
+    let envref = Rc::new(RefCell::new(env));
 
     for stmt in block {
-        execute(stmt, env)?;
+        execute(stmt, envref.clone())?;
     }
-
-    env.leave_inner();
 
     Ok(())
 }
 
-fn evaluate(expression: ExprTree, env: &mut Environment) -> Result<Value, EvalError> {
+fn evaluate(expression: ExprTree, env: EnvRef) -> Result<Value, EvalError> {
     match expression {
         ExprTree::Grouping(subexpr) => evaluate(*subexpr, env),
 
         ExprTree::Unary(token, subexpr) => evaluate_unary(token, *subexpr, env),
         ExprTree::Binary(token, left, right) => evaluate_binary(token, *left, *right, env),
         ExprTree::Logical(token, left, right) => {
-            let left_value = evaluate(*left, env)?;
+            let left_value = evaluate(*left, env.clone())?;
             if matches!(token.token_type, TokenType::Or) {
                 if is_truthy(&left_value) {
                     return Ok(left_value);
@@ -240,16 +282,75 @@ fn evaluate(expression: ExprTree, env: &mut Environment) -> Result<Value, EvalEr
         ExprTree::Literal(LitValue::Number(x)) => Ok(Value::Number(x)),
         ExprTree::Literal(LitValue::StringLit(s)) => Ok(Value::String(s)),
         ExprTree::Literal(LitValue::Nil) => Ok(Value::Nil),
-        ExprTree::Variable(name) => env.lookup(&name).cloned(),
+        ExprTree::Variable(name) => env.as_ref().borrow().lookup(&name),
         ExprTree::Assignment(name, expr_tree) => {
-            let value = evaluate(*expr_tree, env)?;
-            env.assign(&name, value.clone())?;
+            let value = evaluate(*expr_tree, env.clone())?;
+            env.as_ref().borrow_mut().assign(&name, value.clone())?;
             Ok(value)
+        }
+
+        ExprTree::Call(token, callee, args) => {
+            let arg_values = args
+                .into_iter()
+                .map(|arg| evaluate(arg, env.clone()))
+                .collect::<Result<Vec<Value>, EvalError>>()?;
+
+            let result = match evaluate(*callee, env.clone())? {
+                Value::Func(params, function) => call_function(env, params, arg_values, function),
+
+                val => {
+                    return Err(EvalError {
+                        line: token.line,
+                        kind: EvalErrorKind::TypeError {
+                            expected: "callable".to_string(),
+                            found: val,
+                        },
+                    });
+                }
+            };
+
+            result
         }
     }
 }
 
-fn evaluate_unary(token: Token, expr: ExprTree, env: &mut Environment) -> Result<Value, EvalError> {
+fn call_function(
+    env: EnvRef,
+    params: Vec<String>,
+    args: Vec<Value>,
+    callee: FuncImpl,
+) -> Result<Value, EvalError> {
+    if params.len() != args.len() {
+        return Err(EvalError {
+            line: 0,
+            kind: EvalErrorKind::ArgumentMismatch {
+                expected: params.len(),
+                found: args.len(),
+            },
+        });
+    }
+
+    match callee {
+        FuncImpl::Native(native_fn) => native_fn(args),
+        FuncImpl::LoxFunc(block) => {
+            let global_env = root_env(env);
+            let mut func_scope = Environment::new_inner(global_env);
+
+            for (param, arg) in params.into_iter().zip(args.into_iter()) {
+                func_scope.define(param, arg);
+            }
+
+            let func_envref = Rc::new(RefCell::new(func_scope));
+
+            // Hmmmmm
+            execute_block(block, func_envref);
+
+            todo!() // TODO handle return value and function definition
+        }
+    }
+}
+
+fn evaluate_unary(token: Token, expr: ExprTree, env: EnvRef) -> Result<Value, EvalError> {
     let subvalue = evaluate(expr, env)?;
 
     match (&token.token_type, subvalue) {
@@ -266,9 +367,9 @@ fn evaluate_binary(
     token: Token,
     left: ExprTree,
     right: ExprTree,
-    env: &mut Environment,
+    env: EnvRef,
 ) -> Result<Value, EvalError> {
-    let leftvalue = evaluate(left, env)?;
+    let leftvalue = evaluate(left, env.clone())?;
     let rightvalue = evaluate(right, env)?;
 
     match (&token.token_type, leftvalue, rightvalue) {

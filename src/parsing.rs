@@ -53,7 +53,7 @@ impl std::fmt::Display for ParseError {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Stmt {
     ExprStmt(ExprTree),
     PrintStmt(ExprTree),
@@ -69,7 +69,7 @@ pub struct Expression {
     tree: ExprTree,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ExprTree {
     Binary(Token, Box<ExprTree>, Box<ExprTree>),
     Logical(Token, Box<ExprTree>, Box<ExprTree>),
@@ -78,9 +78,10 @@ pub enum ExprTree {
     Literal(LitValue),
     Variable(String),
     Assignment(String, Box<ExprTree>),
+    Call(Token, Box<ExprTree>, Vec<ExprTree>),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum LitValue {
     False,
     True,
@@ -106,6 +107,9 @@ impl ExprTree {
             ),
             ExprTree::Variable(ident) => ident.to_string(),
             ExprTree::Assignment(name, value) => format!("{} assigned to {}", value, name),
+            ExprTree::Call(token, callee, args) => {
+                format!("{} called with arguments: {:?}", callee, args)
+            }
         }
     }
 }
@@ -135,6 +139,7 @@ pub struct Parser {
     tokens: Vec<Token>,
 }
 
+#[derive(Debug)]
 pub enum ParserOutput {
     Good(Vec<Stmt>),
     Bad(Vec<ParseError>),
@@ -393,8 +398,6 @@ impl Parser {
         let expr = self.or()?;
 
         if self.tokenmatch(&[TokenType::Equal])? {
-            let equals = self.previous();
-
             let value = self.assignment()?;
 
             match expr {
@@ -497,7 +500,42 @@ impl Parser {
             return Ok(ExprTree::Unary(operator, Box::new(right)));
         }
 
-        self.primary()
+        self.call()
+    }
+
+    fn call(&mut self) -> Result<ExprTree, ParseError> {
+        let mut callee = self.primary()?;
+
+        while self.tokenmatch(&[TokenType::LeftParen])? {
+            let token = self.previous().clone();
+            let mut arguments = Vec::new();
+
+            if !self.check(&TokenType::RightParen)? {
+                arguments.push(self.expression()?);
+                while self.tokenmatch(&[TokenType::Comma])? {
+                    arguments.push(self.expression()?);
+                }
+            }
+
+            if !self.tokenmatch(&[TokenType::Comma])? {
+                self.consume(
+                    &[TokenType::RightParen],
+                    "Expected ')' at end of function call.",
+                )?;
+            }
+
+            if arguments.len() >= 255 {
+                return Err(ParseError {
+                    message: "Too many arguments in call.".to_string(),
+                    loc: ParseErrorLocation::AtLexeme(self.peek()?.lexeme_string()),
+                    line: self.previous().line,
+                });
+            }
+
+            callee = ExprTree::Call(token, Box::new(callee), arguments);
+        }
+
+        Ok(callee)
     }
 
     fn primary(&mut self) -> Result<ExprTree, ParseError> {
