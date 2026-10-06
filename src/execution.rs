@@ -212,12 +212,12 @@ pub fn interpret(program: Vec<Stmt>) {
 
     let global_envref = Rc::new(RefCell::new(global_env));
 
-    let base_env = Environment::new_inner(global_envref);
-    let base_envref = Rc::new(RefCell::new(base_env));
+    //let base_env = Environment::new_inner(global_envref);
+    //let base_envref = Rc::new(RefCell::new(base_env));
 
     for stmt in program {
         // TODO handle errors
-        execute(stmt, base_envref.clone()).unwrap();
+        execute(stmt, global_envref.clone()).unwrap();
     }
 }
 
