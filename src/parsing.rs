@@ -333,7 +333,11 @@ impl Parser {
     }
 
     fn func_declaration(&mut self) -> Result<Stmt, ParseError> {
-        let Token { token_type: TokenType::Identifier(func_name), .. } = self.advance()?.clone() else {
+        let Token {
+            token_type: TokenType::Identifier(func_name),
+            ..
+        } = self.advance()?.clone()
+        else {
             return Err(ParseError {
                 message: "Expected identifier after 'fun'.".to_string(),
                 loc: ParseErrorLocation::AtLexeme(self.previous().lexeme_string()),
@@ -351,9 +355,13 @@ impl Parser {
         loop {
             if self.tokenmatch(&[TokenType::RightParen])? {
                 break;
-            }   
+            }
 
-            let Token { token_type: TokenType::Identifier(arg_name), .. } = self.advance()?.clone() else {
+            let Token {
+                token_type: TokenType::Identifier(arg_name),
+                ..
+            } = self.advance()?.clone()
+            else {
                 return Err(ParseError {
                     message: "Expected identifier as function parameter.".to_string(),
                     loc: ParseErrorLocation::AtLexeme(self.previous().lexeme_string()),
@@ -365,7 +373,7 @@ impl Parser {
 
             if self.tokenmatch(&[TokenType::RightParen])? {
                 break;
-            }            
+            }
 
             self.consume(
                 &[TokenType::Comma],

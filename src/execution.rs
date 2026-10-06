@@ -1,5 +1,5 @@
 use crate::{native_functions, parsing::*, scanning::*};
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, fmt::Debug, rc::Rc};
 
 fn evaluation_error(error: EvalError) {
     crate::report_raw(&error.to_string())
@@ -85,9 +85,9 @@ pub enum Value {
 
 pub type NativeFn = fn(Vec<Value>) -> Result<Value, EvalError>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum FuncImpl {
-    LoxFunc(Vec<Stmt>),
+    LoxFunc(Vec<Stmt>, EnvRef),
     Native(NativeFn),
 }
 
@@ -128,6 +128,19 @@ impl Value {
             Self::Bool(_) => "bool",
             Self::Nil => "nil",
             Self::Func { .. } => "function",
+        }
+    }
+}
+
+impl std::fmt::Debug for FuncImpl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::LoxFunc(arg0, _) => f
+                .debug_tuple("LoxFunc")
+                .field(arg0)
+                .field(&"An Environment")
+                .finish(),
+            Self::Native(arg0) => f.debug_tuple("Native").field(arg0).finish(),
         }
     }
 }
@@ -211,7 +224,7 @@ pub fn interpret(program: Vec<Stmt>) {
     );
 
     let global_envref = Rc::new(RefCell::new(global_env));
-    
+
     for stmt in program {
         // TODO handle errors
         execute(stmt, global_envref.clone()).unwrap();
@@ -324,7 +337,7 @@ fn evaluate(expression: ExprTree, env: EnvRef) -> Result<Value, EvalError> {
         ExprTree::Variable(name) => env.as_ref().borrow().lookup(&name),
         ExprTree::Function { params, body } => Ok(Value::Func {
             params,
-            function: FuncImpl::LoxFunc(body),
+            function: FuncImpl::LoxFunc(body, env),
         }),
         ExprTree::Assignment(name, expr_tree) => {
             let value = evaluate(*expr_tree, env.clone())?;
@@ -343,9 +356,7 @@ fn evaluate(expression: ExprTree, env: EnvRef) -> Result<Value, EvalError> {
                 .collect::<Result<Vec<Value>, EvalError>>()?;
 
             let result = match evaluate(*callee, env.clone())? {
-                Value::Func { params, function } => {
-                    call_function(env, params, arg_values, function)
-                }
+                Value::Func { params, function } => call_function(params, arg_values, function),
 
                 val => {
                     return Err(EvalError {
@@ -364,7 +375,6 @@ fn evaluate(expression: ExprTree, env: EnvRef) -> Result<Value, EvalError> {
 }
 
 fn call_function(
-    env: EnvRef,
     params: Vec<String>,
     args: Vec<Value>,
     callee: FuncImpl,
@@ -381,9 +391,8 @@ fn call_function(
 
     match callee {
         FuncImpl::Native(native_fn) => native_fn(args),
-        FuncImpl::LoxFunc(block) => {
-            let global_env = root_env(env);
-            let mut func_scope = Environment::new_inner(global_env);
+        FuncImpl::LoxFunc(block, defining_env) => {
+            let mut func_scope = Environment::new_inner(defining_env);
 
             for (param, arg) in params.into_iter().zip(args.into_iter()) {
                 func_scope.define(param, arg);

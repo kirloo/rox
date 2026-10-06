@@ -1,0 +1,16 @@
+
+
+fun make_counter(n) {
+    var i = 0;
+    fun increment() {
+        i = i+1;
+    }
+
+    while (i <= n) {
+        increment();
+        print i;
+    }
+}
+
+
+make_counter(10);
