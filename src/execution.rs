@@ -77,7 +77,10 @@ pub enum Value {
     String(String),
     Bool(bool),
     Nil,
-    Func(Vec<String>, FuncImpl),
+    Func {
+        params: Vec<String>,
+        function: FuncImpl,
+    },
 }
 
 pub type NativeFn = fn(Vec<Value>) -> Result<Value, EvalError>;
@@ -113,7 +116,7 @@ impl Value {
             Self::String(s) => s,
             Self::Bool(b) => b.to_string(),
             Self::Nil => "nil".to_string(),
-            Self::Func(params, func) => "a function".to_string(),
+            Self::Func { params, function } => "a function".to_string(),
         }
     }
 
@@ -124,7 +127,7 @@ impl Value {
             Self::String(_) => "string",
             Self::Bool(_) => "bool",
             Self::Nil => "nil",
-            Self::Func(_, _) => "function",
+            Self::Func { .. } => "function",
         }
     }
 }
@@ -142,6 +145,8 @@ pub enum EvalErrorKind {
     Unassigned(String),
     TypeError { expected: String, found: Value },
     ArgumentMismatch { expected: usize, found: usize },
+    // Evil variant
+    Return(Value),
 }
 
 impl std::fmt::Display for EvalError {
@@ -177,6 +182,11 @@ impl std::fmt::Display for EvalError {
                 "[line {}] Error in call: expected {} arguments, found {}.",
                 self.line, expected, found
             ),
+            EvalErrorKind::Return(_) => write!(
+                f,
+                "[line {}] Error at 'return': return statement outside function",
+                self.line
+            ),
         }
     }
 }
@@ -194,7 +204,10 @@ pub fn interpret(program: Vec<Stmt>) {
 
     global_env.define(
         "clock".to_string(),
-        Value::Func(vec![], FuncImpl::Native(native_functions::clock)),
+        Value::Func {
+            params: vec![],
+            function: FuncImpl::Native(native_functions::clock),
+        },
     );
 
     let global_envref = Rc::new(RefCell::new(global_env));
@@ -244,6 +257,17 @@ fn execute(stmt: Stmt, env: EnvRef) -> Result<(), EvalError> {
                 execute(*body.clone(), env.clone())?
             }
         }
+        Stmt::Return(maybe_expr) => {
+            let value = if let Some(expr) = maybe_expr {
+                evaluate(expr, env)?
+            } else {
+                Value::Nil
+            };
+            return Err(EvalError {
+                line: 0,
+                kind: EvalErrorKind::Return(value),
+            });
+        }
     }
     Ok(())
 }
@@ -257,6 +281,24 @@ fn execute_block(block: Vec<Stmt>, env: EnvRef) -> Result<(), EvalError> {
     }
 
     Ok(())
+}
+
+fn execute_function(block: Vec<Stmt>, env: EnvRef) -> Result<Value, EvalError> {
+    let env = Environment::new_inner(env);
+    let func_envref = Rc::new(RefCell::new(env));
+
+    for stmt in block {
+        match execute(stmt, func_envref.clone()) {
+            Ok(_) => (),
+            Err(EvalError {
+                line: _,
+                kind: EvalErrorKind::Return(value),
+            }) => return Ok(value),
+            Err(e) => return Err(e),
+        }
+    }
+
+    Ok(Value::Nil)
 }
 
 fn evaluate(expression: ExprTree, env: EnvRef) -> Result<Value, EvalError> {
@@ -283,20 +325,30 @@ fn evaluate(expression: ExprTree, env: EnvRef) -> Result<Value, EvalError> {
         ExprTree::Literal(LitValue::StringLit(s)) => Ok(Value::String(s)),
         ExprTree::Literal(LitValue::Nil) => Ok(Value::Nil),
         ExprTree::Variable(name) => env.as_ref().borrow().lookup(&name),
+        ExprTree::Function { params, body } => Ok(Value::Func {
+            params,
+            function: FuncImpl::LoxFunc(body),
+        }),
         ExprTree::Assignment(name, expr_tree) => {
             let value = evaluate(*expr_tree, env.clone())?;
             env.as_ref().borrow_mut().assign(&name, value.clone())?;
             Ok(value)
         }
 
-        ExprTree::Call(token, callee, args) => {
+        ExprTree::Call {
+            token,
+            callee,
+            args,
+        } => {
             let arg_values = args
                 .into_iter()
                 .map(|arg| evaluate(arg, env.clone()))
                 .collect::<Result<Vec<Value>, EvalError>>()?;
 
             let result = match evaluate(*callee, env.clone())? {
-                Value::Func(params, function) => call_function(env, params, arg_values, function),
+                Value::Func { params, function } => {
+                    call_function(env, params, arg_values, function)
+                }
 
                 val => {
                     return Err(EvalError {
@@ -342,10 +394,9 @@ fn call_function(
 
             let func_envref = Rc::new(RefCell::new(func_scope));
 
-            // Hmmmmm
-            execute_block(block, func_envref);
+            let return_value = execute_function(block, func_envref)?;
 
-            todo!() // TODO handle return value and function definition
+            Ok(return_value)
         }
     }
 }

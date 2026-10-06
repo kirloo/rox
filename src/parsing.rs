@@ -61,6 +61,7 @@ pub enum Stmt {
     Block(Vec<Stmt>),
     IfStmt(ExprTree, Box<Stmt>, Option<Box<Stmt>>),
     WhileLoop(ExprTree, Box<Stmt>),
+    Return(Option<ExprTree>),
 }
 
 // TODO use to propagate line number to parsing errors?
@@ -78,7 +79,15 @@ pub enum ExprTree {
     Literal(LitValue),
     Variable(String),
     Assignment(String, Box<ExprTree>),
-    Call(Token, Box<ExprTree>, Vec<ExprTree>),
+    Call {
+        token: Token,
+        callee: Box<ExprTree>,
+        args: Vec<ExprTree>,
+    },
+    Function {
+        params: Vec<String>,
+        body: Vec<Stmt>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -107,8 +116,15 @@ impl ExprTree {
             ),
             ExprTree::Variable(ident) => ident.to_string(),
             ExprTree::Assignment(name, value) => format!("{} assigned to {}", value, name),
-            ExprTree::Call(token, callee, args) => {
+            ExprTree::Call {
+                token: _,
+                callee,
+                args,
+            } => {
                 format!("{} called with arguments: {:?}", callee, args)
+            }
+            ExprTree::Function { params, body } => {
+                format!("Params: {:?}, body: {:?}", params, body)
             }
         }
     }
@@ -231,6 +247,8 @@ impl Parser {
     fn declaration(&mut self) -> Result<Stmt, ParseError> {
         if self.tokenmatch(&[TokenType::Var])? {
             self.var_declaration()
+        } else if self.tokenmatch(&[TokenType::Fun])? {
+            self.func_declaration()
         } else {
             self.statement()
         }
@@ -250,6 +268,8 @@ impl Parser {
             stmt = self.while_loop()?;
         } else if self.tokenmatch(&[TokenType::For])? {
             stmt = self.for_loop()?;
+        } else if self.tokenmatch(&[TokenType::Return])? {
+            stmt = self.return_stmt()?;
         } else {
             stmt = Stmt::ExprStmt(self.expression()?);
             self.consume(&[TokenType::Semicolon], "Expect ';' after expression")?;
@@ -310,6 +330,57 @@ impl Parser {
 
         let stmt = Stmt::Var(identifier.to_string(), assigned_expr);
         Ok(stmt)
+    }
+
+    fn func_declaration(&mut self) -> Result<Stmt, ParseError> {
+        let Token { token_type: TokenType::Identifier(func_name), .. } = self.advance()?.clone() else {
+            return Err(ParseError {
+                message: "Expected identifier after 'fun'.".to_string(),
+                loc: ParseErrorLocation::AtLexeme(self.previous().lexeme_string()),
+                line: self.previous().line,
+            });
+        };
+
+        self.consume(
+            &[TokenType::LeftParen],
+            "Expected '(' after function name in function declaration.",
+        )?;
+
+        let mut params = Vec::new();
+
+        loop {
+            if self.tokenmatch(&[TokenType::RightParen])? {
+                break;
+            }   
+
+            let Token { token_type: TokenType::Identifier(arg_name), .. } = self.advance()?.clone() else {
+                return Err(ParseError {
+                    message: "Expected identifier as function parameter.".to_string(),
+                    loc: ParseErrorLocation::AtLexeme(self.previous().lexeme_string()),
+                    line: self.previous().line,
+                });
+            };
+
+            params.push(arg_name);
+
+            if self.tokenmatch(&[TokenType::RightParen])? {
+                break;
+            }            
+
+            self.consume(
+                &[TokenType::Comma],
+                "Expected ',' or ')' after function parameter",
+            )?;
+        }
+
+        self.consume(
+            &[TokenType::LeftBrace],
+            "Expect '{' to start function body.",
+        )?;
+
+        let body = self.block()?;
+
+        return Ok(Stmt::Var(func_name, ExprTree::Function { params, body }));
     }
 
     fn if_stmt(&mut self) -> Result<Stmt, ParseError> {
@@ -373,6 +444,20 @@ impl Parser {
         let while_loop = Stmt::WhileLoop(condition, Box::new(body));
 
         Ok(Stmt::Block(vec![initializer, while_loop]))
+    }
+
+    fn return_stmt(&mut self) -> Result<Stmt, ParseError> {
+        if self.tokenmatch(&[TokenType::Semicolon])? {
+            return Ok(Stmt::Return(None));
+        }
+
+        let return_expression = self.expression()?;
+        self.consume(
+            &[TokenType::Semicolon],
+            "Expected ';' after return statement",
+        )?;
+
+        Ok(Stmt::Return(Some(return_expression)))
     }
 
     fn block(&mut self) -> Result<Vec<Stmt>, ParseError> {
@@ -532,7 +617,11 @@ impl Parser {
                 });
             }
 
-            callee = ExprTree::Call(token, Box::new(callee), arguments);
+            callee = ExprTree::Call {
+                token,
+                callee: Box::new(callee),
+                args: arguments,
+            };
         }
 
         Ok(callee)

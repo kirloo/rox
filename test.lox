@@ -1,21 +1,26 @@
-var a = 0;
-var temp;
-
-var start = clock();
-
-for (var b = 1; a < 10000; b = temp + b) {
-  print a;
-  temp = a;
-  a = b;
+fun fibs(n) {
+  var a = 0;
+  var temp;
+  for (var b = 1; a < n; b = temp + b) {
+    print a;
+    temp = a;
+    a = b;
+  }
 }
 
+var start = clock();
+fibs(10000);
 var end = clock();
 
-var diff = end - start;
+fun diff(s, e) {
+  return e - s;
+}
+
+var elapsed = diff(start, end);
 
 print "start";
 print start;
 print "end";
 print end;
 print "elapsed";
-print diff;
+print elapsed;
