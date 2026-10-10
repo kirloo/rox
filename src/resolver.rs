@@ -4,12 +4,20 @@ use crate::parsing::{ExprTree, LitValue, Stmt};
 
 pub struct Resolver {
     scopes: Vec<HashMap<String, bool>>,
+    function_type: FunctionType
+}
+
+#[derive(Clone, Copy)]
+enum FunctionType {
+    Function,
+    None,
 }
 
 impl Resolver {
     pub fn new(globals: &Vec<impl ToString>) -> Self {
         let mut resolver = Resolver {
             scopes: vec![HashMap::new()],
+            function_type: FunctionType::None,
         };
 
         for global in globals {
@@ -38,6 +46,9 @@ impl Resolver {
                 self.define(name.clone());
             }
             Stmt::Return(return_expr) => {
+                if let FunctionType::None = self.function_type {
+                    return Err(ResolverError::TopLevelReturn)
+                }
                 if let Some(expr) = return_expr {
                     self.resolve_expr(expr)?;
                 }
@@ -97,6 +108,9 @@ impl Resolver {
                 self.resolve_local(expr, name)?;
             }
             ExprTree::Function { params, body } => {
+                let previous_function = self.function_type;
+                self.function_type = FunctionType::Function;
+
                 self.begin_scope();
                 for param in params {
                     self.declare(param.clone());
@@ -107,6 +121,7 @@ impl Resolver {
                 }
 
                 self.end_scope();
+                self.function_type = previous_function;
             }
             ExprTree::Call {
                 token: _,
@@ -171,4 +186,5 @@ impl Resolver {
 #[derive(Debug)]
 pub enum ResolverError {
     SelfReferentialDecl,
+    TopLevelReturn,
 }
