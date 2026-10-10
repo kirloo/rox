@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 mod execution;
 mod native_functions;
 mod parsing;
+mod resolver;
 mod scanning;
 
 use execution::interpret;

@@ -1,12 +1,38 @@
-use crate::{native_functions, parsing::*, scanning::*};
+use crate::{native_functions, parsing::*, resolver::Resolver, scanning::*};
 use std::{cell::RefCell, collections::HashMap, fmt::Debug, rc::Rc};
 
 fn evaluation_error(error: EvalError) {
     crate::report_raw(&error.to_string())
 }
 
+pub fn interpret(mut program: Vec<Stmt>) {
+    let global_names = vec!["clock"];
+    let global_values = vec![Value::Func {
+        params: vec![],
+        function: FuncImpl::Native(native_functions::clock),
+    }];
+
+    let mut resolver = Resolver::new(&global_names);
+    resolver.resolve_program(&mut program).unwrap();
+
+    let mut global_env = Environment::new();
+
+    for (name, value) in global_names.iter().zip(global_values.into_iter()) {
+        global_env.define(name.to_string(), value)
+    }
+
+    let global_envref = Rc::new(RefCell::new(global_env));
+
+    for stmt in program {
+        // TODO handle errors
+        execute(stmt, global_envref.clone()).unwrap();
+    }
+}
+
+
 type EnvRef = Rc<RefCell<Environment>>;
 
+#[derive(Debug)]
 struct Environment {
     namespace: HashMap<String, Value>,
     enclosing: Option<EnvRef>,
@@ -61,14 +87,17 @@ impl Environment {
             }),
         }
     }
-}
 
-fn root_env(current: EnvRef) -> EnvRef {
-    let Some(enclosing) = current.borrow().enclosing.clone() else {
-        return current;
-    };
-
-    root_env(enclosing)
+    fn walk(envref: &EnvRef, steps: usize) -> Option<EnvRef> {
+        if steps == 0 {
+            return Some(envref.clone());
+        }
+        if let Some(inner_envref) = envref.borrow().enclosing.clone() {
+            return Self::walk(&inner_envref, steps - 1);
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -212,25 +241,6 @@ impl std::fmt::Display for Value {
     }
 }
 
-pub fn interpret(program: Vec<Stmt>) {
-    let mut global_env = Environment::new();
-
-    global_env.define(
-        "clock".to_string(),
-        Value::Func {
-            params: vec![],
-            function: FuncImpl::Native(native_functions::clock),
-        },
-    );
-
-    let global_envref = Rc::new(RefCell::new(global_env));
-
-    for stmt in program {
-        // TODO handle errors
-        execute(stmt, global_envref.clone()).unwrap();
-    }
-}
-
 fn execute(stmt: Stmt, env: EnvRef) -> Result<(), EvalError> {
     match stmt {
         Stmt::ExprStmt(expr) => {
@@ -294,11 +304,8 @@ fn execute_block(block: Vec<Stmt>, env: EnvRef) -> Result<(), EvalError> {
 }
 
 fn execute_function(block: Vec<Stmt>, env: EnvRef) -> Result<Value, EvalError> {
-    let env = Environment::new_inner(env);
-    let func_envref = Rc::new(RefCell::new(env));
-
     for stmt in block {
-        match execute(stmt, func_envref.clone()) {
+        match execute(stmt, env.clone()) {
             Ok(_) => (),
             Err(EvalError {
                 line: _,
@@ -334,13 +341,25 @@ fn evaluate(expression: ExprTree, env: EnvRef) -> Result<Value, EvalError> {
         ExprTree::Literal(LitValue::Number(x)) => Ok(Value::Number(x)),
         ExprTree::Literal(LitValue::StringLit(s)) => Ok(Value::String(s)),
         ExprTree::Literal(LitValue::Nil) => Ok(Value::Nil),
-        ExprTree::Variable(name) => env.as_ref().borrow().lookup(&name),
+        ExprTree::Variable { name, env_steps } => {
+            let env = Environment::walk(&env, env_steps)
+                .expect(&format!("Resolved scope doesn't exist for {}", name));
+            env.as_ref().borrow().lookup(&name)
+        }
+
         ExprTree::Function { params, body } => Ok(Value::Func {
             params,
             function: FuncImpl::LoxFunc(body, env),
         }),
-        ExprTree::Assignment(name, expr_tree) => {
-            let value = evaluate(*expr_tree, env.clone())?;
+
+        ExprTree::Assignment {
+            name,
+            assigned_expr,
+            env_steps,
+        } => {
+            let env = Environment::walk(&env, env_steps)
+                .expect(&format!("Resolved scope doesn't exist for {}", name));
+            let value = evaluate(*assigned_expr, env.clone())?;
             env.as_ref().borrow_mut().assign(&name, value.clone())?;
             Ok(value)
         }

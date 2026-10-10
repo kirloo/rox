@@ -77,8 +77,15 @@ pub enum ExprTree {
     Unary(Token, Box<ExprTree>),
     Grouping(Box<ExprTree>),
     Literal(LitValue),
-    Variable(String),
-    Assignment(String, Box<ExprTree>),
+    Variable {
+        name: String,
+        env_steps: usize,
+    },
+    Assignment {
+        name: String,
+        assigned_expr: Box<ExprTree>,
+        env_steps: usize,
+    },
     Call {
         token: Token,
         callee: Box<ExprTree>,
@@ -114,8 +121,12 @@ impl ExprTree {
                 Self::to_string(leftexpr),
                 Self::to_string(rightexpr)
             ),
-            ExprTree::Variable(ident) => ident.to_string(),
-            ExprTree::Assignment(name, value) => format!("{} assigned to {}", value, name),
+            ExprTree::Variable { name, .. } => name.to_string(),
+            ExprTree::Assignment {
+                name,
+                assigned_expr,
+                ..
+            } => format!("{} assigned to {}", assigned_expr, name),
             ExprTree::Call {
                 token: _,
                 callee,
@@ -494,7 +505,13 @@ impl Parser {
             let value = self.assignment()?;
 
             match expr {
-                ExprTree::Variable(name) => return Ok(ExprTree::Assignment(name, Box::new(value))),
+                ExprTree::Variable { name, env_steps } => {
+                    return Ok(ExprTree::Assignment {
+                        name,
+                        assigned_expr: Box::new(value),
+                        env_steps,
+                    });
+                }
                 target => {
                     return Err(ParseError {
                         message: format!("Invalid assignment target: {}", target),
@@ -648,7 +665,10 @@ impl Parser {
                 self.consume(&[TokenType::RightParen], "Expect ')' after expression")?;
                 ExprTree::Grouping(Box::new(expr))
             }
-            TokenType::Identifier(name) => ExprTree::Variable(name.to_string()),
+            TokenType::Identifier(name) => ExprTree::Variable {
+                name: name.to_string(),
+                env_steps: 0,
+            },
 
             TokenType::EOF => {
                 return Err(ParseError {
