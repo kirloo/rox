@@ -2,19 +2,6 @@ use std::mem::discriminant;
 
 use crate::scanning::{Token, TokenType};
 
-fn parse_error(token: Token, message: &str) {
-    use std::mem::discriminant;
-    if discriminant(&token.token_type) == discriminant(&TokenType::EOF) {
-        crate::report(token.line, " at end", message);
-    } else {
-        crate::report(
-            token.line,
-            &format!(" at '{}'", token.lexeme.iter().collect::<String>()),
-            message,
-        );
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct ParseError {
     message: String,
@@ -62,12 +49,7 @@ pub enum Stmt {
     IfStmt(ExprTree, Box<Stmt>, Option<Box<Stmt>>),
     WhileLoop(ExprTree, Box<Stmt>),
     Return(Option<ExprTree>),
-}
-
-// TODO use to propagate line number to parsing errors?
-pub struct Expression {
-    line: u32,
-    tree: ExprTree,
+    Class { name: String, methods: Vec<Stmt> },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -78,11 +60,11 @@ pub enum ExprTree {
     Grouping(Box<ExprTree>),
     Literal(LitValue),
     Variable {
-        name: String,
+        kind: VariableKind,
         env_steps: usize,
     },
     Assignment {
-        name: String,
+        kind: VariableKind,
         assigned_expr: Box<ExprTree>,
         env_steps: usize,
     },
@@ -95,6 +77,12 @@ pub enum ExprTree {
         params: Vec<String>,
         body: Vec<Stmt>,
     },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum VariableKind {
+    Independent { name: String },
+    Field { object: Box<ExprTree>, name: String },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -121,12 +109,26 @@ impl ExprTree {
                 Self::to_string(leftexpr),
                 Self::to_string(rightexpr)
             ),
-            ExprTree::Variable { name, .. } => name.to_string(),
+            ExprTree::Variable {
+                kind: VariableKind::Independent { name },
+                ..
+            } => name.to_string(),
+            ExprTree::Variable {
+                kind: VariableKind::Field { object, name },
+                ..
+            } => format!("{}.{}", object, name),
             ExprTree::Assignment {
-                name,
+                kind: VariableKind::Independent { name },
                 assigned_expr,
                 ..
             } => format!("{} assigned to {}", assigned_expr, name),
+            ExprTree::Assignment {
+                kind: VariableKind::Field { object, name },
+                assigned_expr,
+                ..
+            } => {
+                format!("{} assigned to {}.{}", assigned_expr, object, name)
+            }
             ExprTree::Call {
                 token: _,
                 callee,
@@ -260,6 +262,8 @@ impl Parser {
             self.var_declaration()
         } else if self.tokenmatch(&[TokenType::Fun])? {
             self.func_declaration()
+        } else if self.tokenmatch(&[TokenType::Class])? {
+            self.class_declaration()
         } else {
             self.statement()
         }
@@ -402,6 +406,35 @@ impl Parser {
         return Ok(Stmt::Var(func_name, ExprTree::Function { params, body }));
     }
 
+    fn class_declaration(&mut self) -> Result<Stmt, ParseError> {
+        let Token {
+            token_type: TokenType::Identifier(class_name),
+            ..
+        } = self.advance()?.clone()
+        else {
+            return Err(ParseError {
+                message: "Expected identifier after 'class'.".to_string(),
+                loc: ParseErrorLocation::AtLexeme(self.previous().lexeme_string()),
+                line: self.previous().line,
+            });
+        };
+
+        self.consume(&[TokenType::LeftBrace], "Expect '{' before class body.")?;
+
+        let mut methods = Vec::new();
+
+        while !self.check(&TokenType::RightBrace)? && !self.is_at_end() {
+            methods.push(self.func_declaration()?);
+        }
+
+        self.consume(&[TokenType::RightBrace], "Expect '}' after class body.")?;
+
+        Ok(Stmt::Class {
+            name: class_name,
+            methods,
+        })
+    }
+
     fn if_stmt(&mut self) -> Result<Stmt, ParseError> {
         self.consume(&[TokenType::LeftParen], "Expect '(' after 'if'.")?;
         let condition = self.expression()?;
@@ -505,9 +538,9 @@ impl Parser {
             let value = self.assignment()?;
 
             match expr {
-                ExprTree::Variable { name, env_steps } => {
+                ExprTree::Variable { kind, env_steps } => {
                     return Ok(ExprTree::Assignment {
-                        name,
+                        kind,
                         assigned_expr: Box::new(value),
                         env_steps,
                     });
@@ -614,7 +647,7 @@ impl Parser {
     }
 
     fn call(&mut self) -> Result<ExprTree, ParseError> {
-        let mut callee = self.primary()?;
+        let mut callee = self.field_access()?;
 
         while self.tokenmatch(&[TokenType::LeftParen])? {
             let token = self.previous().clone();
@@ -652,6 +685,39 @@ impl Parser {
         Ok(callee)
     }
 
+    fn field_access(&mut self) -> Result<ExprTree, ParseError> {
+        let mut object = self.primary()?;
+
+        if matches!(object, ExprTree::Variable { .. }) {
+            while self.tokenmatch(&[TokenType::Dot])? {
+                let token @ Token {
+                    token_type, line, ..
+                } = self.advance()?;
+
+                let identifier = match token_type {
+                    TokenType::Identifier(ident) => ident.clone(),
+                    _ => {
+                        return Err(ParseError {
+                            line: *line,
+                            message: "Expected identifier after '.' for field access".to_string(),
+                            loc: ParseErrorLocation::AtLexeme(token.lexeme_string()),
+                        });
+                    }
+                };
+
+                object = ExprTree::Variable {
+                    kind: VariableKind::Field {
+                        object: Box::new(object),
+                        name: identifier,
+                    },
+                    env_steps: 0,
+                }
+            }
+        }
+
+        Ok(object)
+    }
+
     fn primary(&mut self) -> Result<ExprTree, ParseError> {
         let token = self.advance()?;
         let expr = match &token.token_type {
@@ -666,7 +732,7 @@ impl Parser {
                 ExprTree::Grouping(Box::new(expr))
             }
             TokenType::Identifier(name) => ExprTree::Variable {
-                name: name.to_string(),
+                kind: VariableKind::Independent { name: name.clone() },
                 env_steps: 0,
             },
 

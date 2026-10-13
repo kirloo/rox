@@ -1,0 +1,18 @@
+var ogo = "global";
+
+class Oog {
+    f(x,y) {
+        print ogo;
+        return x+y;
+    }
+}
+
+var o = Oog();
+
+var Oog = "O.o";
+
+print o;
+
+print o.f;
+
+print o.f(5, 6);

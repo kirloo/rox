@@ -1,10 +1,6 @@
 use crate::{native_functions, parsing::*, resolver::Resolver, scanning::*};
 use std::{cell::RefCell, collections::HashMap, fmt::Debug, rc::Rc};
 
-fn evaluation_error(error: EvalError) {
-    crate::report_raw(&error.to_string())
-}
-
 pub fn interpret(mut program: Vec<Stmt>) {
     let global_names = vec!["clock"];
     let global_values = vec![Value::Func {
@@ -28,7 +24,6 @@ pub fn interpret(mut program: Vec<Stmt>) {
         execute(stmt, global_envref.clone()).unwrap();
     }
 }
-
 
 type EnvRef = Rc<RefCell<Environment>>;
 
@@ -65,7 +60,8 @@ impl Environment {
         }
 
         match &self.enclosing {
-            Some(outer) => outer.as_ref().borrow().lookup(name),
+            Some(outer) => outer.as_ref().borrow_mut().lookup(name),
+
             None => Err(EvalError {
                 line: 0,
                 kind: EvalErrorKind::Unassigned(name.to_string()),
@@ -98,6 +94,25 @@ impl Environment {
             None
         }
     }
+
+    fn operate_on<T>(
+        &mut self,
+        name: &str,
+        f: impl FnOnce(&mut Value) -> T,
+    ) -> Result<T, EvalError> {
+        if let Some(val) = self.namespace.get_mut(name) {
+            Ok(f(val))
+        } else {
+            let Some(outer) = self.enclosing.clone() else {
+                return Err(EvalError {
+                    line: 0,
+                    kind: EvalErrorKind::Unassigned(name.to_string()),
+                });
+            };
+
+            outer.borrow_mut().operate_on(name, f)
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -109,6 +124,13 @@ pub enum Value {
     Func {
         params: Vec<String>,
         function: FuncImpl,
+    },
+    Class {
+        methods: Rc<HashMap<String, Value>>,
+    },
+    ClassInstance {
+        methods: Rc<HashMap<String, Value>>,
+        fields: Rc<RefCell<HashMap<String, Value>>>,
     },
 }
 
@@ -145,7 +167,9 @@ impl Value {
             Self::String(s) => s,
             Self::Bool(b) => b.to_string(),
             Self::Nil => "nil".to_string(),
-            Self::Func { params, function } => "a function".to_string(),
+            Self::Func { .. } => "a function".to_string(),
+            Self::Class { .. } => "a class".to_string(),
+            Self::ClassInstance { .. } => "a class instance".to_string(),
         }
     }
 
@@ -157,6 +181,8 @@ impl Value {
             Self::Bool(_) => "bool",
             Self::Nil => "nil",
             Self::Func { .. } => "function",
+            Self::Class { .. } => "class",
+            Self::ClassInstance { .. } => "class instance",
         }
     }
 }
@@ -288,6 +314,27 @@ fn execute(stmt: Stmt, env: EnvRef) -> Result<(), EvalError> {
                 kind: EvalErrorKind::Return(value),
             });
         }
+        Stmt::Class {
+            name,
+            methods: method_decls,
+        } => {
+            let mut methods = HashMap::new();
+
+            for stmt in method_decls {
+                if let Stmt::Var(methodname, method) = stmt {
+                    // Can this panic? We hold RefMut to env during inner evaluation
+                    // environment closure for methods happens here
+                    methods.insert(methodname, evaluate(method, env.clone())?);
+                }
+            }
+
+            env.borrow_mut().define(
+                name,
+                Value::Class {
+                    methods: Rc::new(methods),
+                },
+            );
+        }
     }
     Ok(())
 }
@@ -341,11 +388,39 @@ fn evaluate(expression: ExprTree, env: EnvRef) -> Result<Value, EvalError> {
         ExprTree::Literal(LitValue::Number(x)) => Ok(Value::Number(x)),
         ExprTree::Literal(LitValue::StringLit(s)) => Ok(Value::String(s)),
         ExprTree::Literal(LitValue::Nil) => Ok(Value::Nil),
-        ExprTree::Variable { name, env_steps } => {
-            let env = Environment::walk(&env, env_steps)
-                .expect(&format!("Resolved scope doesn't exist for {}", name));
-            env.as_ref().borrow().lookup(&name)
-        }
+        ExprTree::Variable { kind, env_steps } => match kind {
+            VariableKind::Independent { name } => {
+                let env = Environment::walk(&env, env_steps)
+                    .expect(&format!("Resolved scope doesn't exist for {}", name));
+                env.as_ref().borrow().lookup(&name)
+            }
+            VariableKind::Field { object, name } => {
+                let env = Environment::walk(&env, env_steps)
+                    .expect(&format!("Resolved scope doesn't exist for {}", name));
+                let Value::ClassInstance { methods, fields } = evaluate(*object, env)? else {
+                    return Err(EvalError {
+                        line: 0,
+                        kind: EvalErrorKind::Unassigned(
+                            "Field access on type that is not Class".to_string(),
+                        ),
+                    });
+                };
+
+                let fields_refguard = fields.borrow();
+                if let Some(value) = fields_refguard.get(&name) {
+                    return Ok(value.clone());
+                };
+
+                if let Some(value) = methods.get(&name) {
+                    return Ok(value.clone());
+                };
+
+                return Err(EvalError {
+                    line: 0,
+                    kind: EvalErrorKind::Unassigned("Class field not set".to_string()),
+                });
+            }
+        },
 
         ExprTree::Function { params, body } => Ok(Value::Func {
             params,
@@ -353,16 +428,38 @@ fn evaluate(expression: ExprTree, env: EnvRef) -> Result<Value, EvalError> {
         }),
 
         ExprTree::Assignment {
-            name,
+            kind,
             assigned_expr,
             env_steps,
-        } => {
-            let env = Environment::walk(&env, env_steps)
-                .expect(&format!("Resolved scope doesn't exist for {}", name));
-            let value = evaluate(*assigned_expr, env.clone())?;
-            env.as_ref().borrow_mut().assign(&name, value.clone())?;
-            Ok(value)
-        }
+        } => match kind {
+            VariableKind::Independent { name } => {
+                let env = Environment::walk(&env, env_steps)
+                    .expect(&format!("Resolved scope doesn't exist for {}", name));
+
+                let value = evaluate(*assigned_expr, env.clone())?;
+                env.as_ref().borrow_mut().assign(&name, value.clone())?;
+                Ok(value)
+            }
+            VariableKind::Field { object, name } => {
+                let env = Environment::walk(&env, env_steps)
+                    .expect(&format!("Resolved scope doesn't exist for {}", name));
+
+                let value = evaluate(*assigned_expr, env.clone())?;
+
+                let Value::ClassInstance { fields, .. } = evaluate(*object, env)? else {
+                    return Err(EvalError {
+                        line: 0,
+                        kind: EvalErrorKind::Unassigned(
+                            "Field assignment on type that is not Class".to_string(),
+                        ),
+                    });
+                };
+
+                fields.borrow_mut().insert(name, value.clone());
+
+                Ok(value)
+            }
+        },
 
         ExprTree::Call {
             token,
@@ -374,21 +471,21 @@ fn evaluate(expression: ExprTree, env: EnvRef) -> Result<Value, EvalError> {
                 .map(|arg| evaluate(arg, env.clone()))
                 .collect::<Result<Vec<Value>, EvalError>>()?;
 
-            let result = match evaluate(*callee, env.clone())? {
+            match evaluate(*callee, env.clone())? {
                 Value::Func { params, function } => call_function(params, arg_values, function),
+                Value::Class { methods } => Ok(Value::ClassInstance {
+                    methods,
+                    fields: Rc::new(RefCell::new(HashMap::new())),
+                }),
 
-                val => {
-                    return Err(EvalError {
-                        line: token.line,
-                        kind: EvalErrorKind::TypeError {
-                            expected: "callable".to_string(),
-                            found: val,
-                        },
-                    });
-                }
-            };
-
-            result
+                val => Err(EvalError {
+                    line: token.line,
+                    kind: EvalErrorKind::TypeError {
+                        expected: "callable".to_string(),
+                        found: val,
+                    },
+                }),
+            }
         }
     }
 }

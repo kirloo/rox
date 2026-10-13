@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
-use crate::parsing::{ExprTree, LitValue, Stmt};
+use crate::parsing::{ExprTree, LitValue, Stmt, VariableKind};
 
 pub struct Resolver {
     scopes: Vec<HashMap<String, bool>>,
-    function_type: FunctionType
+    function_type: FunctionType,
 }
 
 #[derive(Clone, Copy)]
@@ -47,7 +47,7 @@ impl Resolver {
             }
             Stmt::Return(return_expr) => {
                 if let FunctionType::None = self.function_type {
-                    return Err(ResolverError::TopLevelReturn)
+                    return Err(ResolverError::TopLevelReturn);
                 }
                 if let Some(expr) = return_expr {
                     self.resolve_expr(expr)?;
@@ -71,6 +71,10 @@ impl Resolver {
                 }
                 self.end_scope();
             }
+            Stmt::Class { name, methods } => {
+                self.declare(name.clone());
+                self.define(name.clone());
+            }
         }
 
         Ok(())
@@ -84,7 +88,7 @@ impl Resolver {
                 self.resolve_expr(rhs)?;
             }
             ExprTree::Assignment {
-                name,
+                kind: VariableKind::Independent { name },
                 assigned_expr,
                 ..
             } => {
@@ -92,8 +96,21 @@ impl Resolver {
                 self.resolve_expr(assigned_expr)?;
                 self.resolve_local(expr, name)?;
             }
+            ExprTree::Assignment {
+                kind: VariableKind::Field { object, .. },
+                assigned_expr,
+                ..
+            } => {
+                // Do we need to resolve fields on class instances?
+                // Resolving the instance itself should be enough
+                self.resolve_expr(object)?;
+                self.resolve_expr(assigned_expr)?;
+            }
             ExprTree::Unary(_, expr) | ExprTree::Grouping(expr) => self.resolve_expr(expr)?,
-            ExprTree::Variable { name, .. } => {
+            ExprTree::Variable {
+                kind: VariableKind::Independent { name },
+                ..
+            } => {
                 let name = name.clone();
                 if !*self
                     .scopes
@@ -106,6 +123,12 @@ impl Resolver {
                 }
 
                 self.resolve_local(expr, name)?;
+            }
+            ExprTree::Variable {
+                kind: VariableKind::Field { object, .. },
+                ..
+            } => {
+                self.resolve_expr(object)?;
             }
             ExprTree::Function { params, body } => {
                 let previous_function = self.function_type;

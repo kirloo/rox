@@ -77,8 +77,3 @@ fn report(line: usize, error_where: &str, message: &str) {
     println!("[line {}] Error{}: {}", line, error_where, message);
     HAD_ERROR.store(true, Ordering::Relaxed);
 }
-
-fn report_raw(message: &str) {
-    println!("{}", message);
-    HAD_ERROR.store(true, Ordering::Relaxed);
-}
