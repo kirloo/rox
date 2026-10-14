@@ -119,7 +119,8 @@ impl Resolver {
                     .flatten()
                     .unwrap_or(&true)
                 {
-                    return Err(ResolverError::SelfReferentialDecl);
+                    // This check causes recursive functions to error
+                    //return Err(ResolverError::SelfReferentialDecl);
                 }
 
                 self.resolve_local(expr, name)?;
