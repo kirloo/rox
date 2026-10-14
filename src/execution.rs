@@ -127,6 +127,7 @@ pub enum Value {
     },
     Class {
         methods: Rc<HashMap<String, Value>>,
+        constructor: Option<Box<Value>>,
     },
     ClassInstance {
         methods: Rc<HashMap<String, Value>>,
@@ -332,6 +333,7 @@ fn execute(stmt: Stmt, env: EnvRef) -> Result<(), EvalError> {
                 name,
                 Value::Class {
                     methods: Rc::new(methods),
+                    constructor: None
                 },
             );
         }
@@ -412,6 +414,11 @@ fn evaluate(expression: ExprTree, env: EnvRef) -> Result<Value, EvalError> {
                 };
 
                 if let Some(value) = methods.get(&name) {
+                    // TODO
+                    // Construct a new function with a fresh environment
+                    // which contains the instance as "this"
+
+
                     return Ok(value.clone());
                 };
 
@@ -473,7 +480,7 @@ fn evaluate(expression: ExprTree, env: EnvRef) -> Result<Value, EvalError> {
 
             match evaluate(*callee, env.clone())? {
                 Value::Func { params, function } => call_function(params, arg_values, function),
-                Value::Class { methods } => Ok(Value::ClassInstance {
+                Value::Class { methods, .. } => Ok(Value::ClassInstance {
                     methods,
                     fields: Rc::new(RefCell::new(HashMap::new())),
                 }),
