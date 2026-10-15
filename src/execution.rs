@@ -414,12 +414,22 @@ fn evaluate(expression: ExprTree, env: EnvRef) -> Result<Value, EvalError> {
                 };
 
                 if let Some(value) = methods.get(&name) {
-                    // TODO
-                    // Construct a new function with a fresh environment
-                    // which contains the instance as "this"
+                    let Value::Func {
+                        function: FuncImpl::LoxFunc(body, env),
+                        params
+                    } = value else {
+                        panic!()
+                    };
 
+                    let mut method_env = Environment::new_inner(env.clone());
 
-                    return Ok(value.clone());
+                    let class_instance = Value::ClassInstance { methods: methods.clone(), fields: fields.clone() };
+                    method_env.define("this".to_string(),class_instance);
+
+                    return Ok(Value::Func {
+                        function: FuncImpl::LoxFunc(body.clone(), Rc::new(RefCell::new(method_env))),
+                        params: params.clone()
+                    });
                 };
 
                 return Err(EvalError {

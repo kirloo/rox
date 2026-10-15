@@ -43,7 +43,7 @@ fn keywords(chars: &[char]) -> Option<TokenType> {
         ['p', 'r', 'i', 'n', 't'] => Some(TokenType::Print),
         ['r', 'e', 't', 'u', 'r', 'n'] => Some(TokenType::Return),
         ['s', 'u', 'p', 'e', 'r'] => Some(TokenType::Super),
-        ['t', 'h', 'i', 's'] => Some(TokenType::This),
+        //['t', 'h', 'i', 's'] => Some(TokenType::This),
         ['t', 'r', 'u', 'e'] => Some(TokenType::True),
         ['v', 'a', 'r'] => Some(TokenType::Var),
         ['w', 'h', 'i', 'l', 'e'] => Some(TokenType::While),

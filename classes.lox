@@ -5,6 +5,11 @@ class Oog {
         print ogo;
         return x+y;
     }
+
+    g() {
+        this.opo = "aba";
+        print this.opo;
+    }
 }
 
 var o = Oog();
@@ -14,5 +19,7 @@ var Oog = "O.o";
 print o;
 
 print o.f;
+
+o.g();
 
 print o.f(5, 6);
