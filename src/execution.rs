@@ -408,6 +408,7 @@ fn evaluate(expression: ExprTree, env: EnvRef) -> Result<Value, EvalError> {
                     });
                 };
 
+                // Fields shadow methods
                 let fields_refguard = fields.borrow();
                 if let Some(value) = fields_refguard.get(&name) {
                     return Ok(value.clone());
